@@ -13,7 +13,7 @@ from mnist import MNIST
 
 parser = argparse.ArgumentParser()
 # These arguments will be set appropriately by ReCodEx, even if you change them.
-parser.add_argument("--activation", default="none", choices=["none", "relu", "tanh", "sigmoid"], help="Activation.")
+parser.add_argument("--activation", default=None, choices=[None, "relu", "tanh", "sigmoid"], help="Activation.")
 parser.add_argument("--batch_size", default=50, type=int, help="Batch size.")
 parser.add_argument("--debug", default=False, action="store_true", help="If given, run functions eagerly.")
 parser.add_argument("--epochs", default=10, type=int, help="Number of epochs.")
@@ -54,6 +54,14 @@ def main(args: argparse.Namespace) -> Dict[str, float]:
     #   from `args.activation`, allowing "none", "relu", "tanh", "sigmoid".
     # - finally, add an output fully connected layer with  `MNIST.LABELS` units
     #   and `tf.nn.softmax` activation.
+    model.add(tf.keras.layers.Flatten())
+    for _ in range(args.hidden_layers):
+        if  args.activation is None:
+            model.add(tf.keras.layers.Dense(args.hidden_layer))
+        else:
+            model.add(tf.keras.layers.Dense(args.hidden_layer, args.activation))
+    model.add(tf.keras.layers.Dense(MNIST.LABELS, tf.nn.softmax))
+    model.summary() 
 
     model.compile(
         optimizer=tf.optimizers.Adam(jit_compile=False),
