@@ -18,8 +18,8 @@ parser.add_argument("--render", default=False, action="store_true", help="Render
 parser.add_argument("--seed", default=42, type=int, help="Random seed.")
 parser.add_argument("--threads", default=1, type=int, help="Maximum number of threads to use.")
 # If you add more arguments, ReCodEx will keep them with your default values.
-parser.add_argument("--batch_size", default=..., type=int, help="Batch size.")
-parser.add_argument("--epochs", default=..., type=int, help="Number of epochs.")
+parser.add_argument("--batch_size", default=10, type=int, help="Batch size.")
+parser.add_argument("--epochs", default=50, type=int, help="Number of epochs.")
 parser.add_argument("--model", default="gym_cartpole_model.h5", type=str, help="Output model path.")
 
 
@@ -80,16 +80,26 @@ def main(args: argparse.Namespace) -> Optional[tf.keras.Model]:
         data = np.loadtxt("gym_cartpole_data.txt")
         observations, labels = data[:, :-1], data[:, -1].astype(np.int32)
 
-        # TODO: Create the model in the `model` variable. Note that
-        # the model can perform any of:
-        # - binary classification with 1 output and sigmoid activation;
-        # - two-class classification with 2 outputs and softmax activation.
-        model = ...
+        # TODO:
+        # Staci tanh alebo ziadne non-linearity
+        # treba implementovat evaluate dovnutra trenovania pretoze krivky klamu
+        model = tf.keras.Sequential([
+            tf.keras.layers.Dense(4, input_dim=4),
+            tf.keras.layers.Dense(8, activation=tf.nn.tanh),
+            tf.keras.layers.Dense(8, activation=tf.nn.tanh),
+            tf.keras.layers.Dense(1, activation=tf.nn.sigmoid),
+        ])
 
         # TODO: Prepare the model for training using the `model.compile` method.
-        model.compile(...)
+        optim = tf.optimizers.Adam(learning_rate=0.005)
+        model.compile(
+            optimizer=optim,
+            loss=tf.losses.BinaryCrossentropy(),
+            metrics=[tf.metrics.BinaryAccuracy("accuracy")],
+        )
 
         tb_callback = tf.keras.callbacks.TensorBoard(args.logdir, histogram_freq=1)
+        eval_callback = 
 
         model.fit(
             observations, labels, batch_size=args.batch_size, epochs=args.epochs, callbacks=[tb_callback]

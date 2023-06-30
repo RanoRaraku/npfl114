@@ -89,8 +89,12 @@ def main(args: argparse.Namespace) -> Dict[str, float]:
     # on a GPU using XLA. However, that requires XLA to be configured properly. You can avoid
     # the JIT compilation by passing `jit_compile=False` to the optimizer constructor.
 
+
+    lr_scheduler = tf.optimizers.schedules.CosineDecay(args.learning_rate, 1000)
+    optim = tf.optimizers.SGD(learning_rate=lr_scheduler)
+
     model.compile(
-        optimizer=...,
+        optimizer=optim,
         loss=tf.losses.SparseCategoricalCrossentropy(),
         metrics=[tf.metrics.SparseCategoricalAccuracy("accuracy")],
     )

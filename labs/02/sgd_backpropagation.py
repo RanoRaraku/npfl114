@@ -38,7 +38,11 @@ class Model(tf.Module):
         # - _W2, which is a trainable Variable of size [args.hidden_layer, MNIST.LABELS],
         #   initialized to `tf.random.normal` value with stddev=0.1 and seed=args.seed,
         # - _b2, which is a trainable Variable of size [MNIST.LABELS] initialized to zeros
-        ...
+        self._W2 = tf.Variable(
+            tf.random.normal([args.hidden_layer, MNIST.LABELS], stddev=0.1, seed=args.seed),
+            trainable=True,
+        )
+        self._b2 = tf.Variable(tf.zeros([MNIST.LABELS]), trainable=True)
 
     def predict(self, inputs: tf.Tensor) -> tf.Tensor:
         # TODO: Define the computation of the network. Notably:
@@ -49,9 +53,17 @@ class Model(tf.Module):
         # - apply `tf.nn.tanh`
         # - multiply the result by `self._W2` and then add `self._b2`
         # - finally apply `tf.nn.softmax` and return the result
-        return ...
+
+        out =  tf.reshape(inputs, [inputs.shape[0], -1])
+        out = tf.matmul(out, self._W1) + self._b1
+        out = tf.nn.tanh(out)
+        out = tf.matmul(out, self._W2) + self._b2
+        out = tf.nn.softmax(out)
+        return out
 
     def train_epoch(self, dataset: MNIST.Dataset) -> None:
+
+        cce = tf.keras.losses.CategoricalCrossentropy()
         for batch in dataset.batches(self._args.batch_size):
             # The batch contains
             # - batch["images"] with shape [?, MNIST.H, MNIST.W, MNIST.C]
@@ -62,7 +74,7 @@ class Model(tf.Module):
             # The tf.GradientTape is used to record all operations inside the with block.
             with tf.GradientTape() as tape:
                 # TODO: Compute the predicted probabilities of the batch images using `self.predict`
-                probabilities = ...
+                probabilities = self.predict(batch["images"])
 
                 # TODO: Manually compute the loss:
                 # - For every batch example, the loss is the categorical crossentropy of the
@@ -70,7 +82,8 @@ class Model(tf.Module):
                 #   - either use `tf.one_hot` to obtain one-hot encoded gold labels,
                 #   - or use `tf.gather` with `batch_dims=1` to "index" the predicted probabilities.
                 # - Finally, compute the average across the batch examples.
-                loss = ...
+                targets = tf.one_hot(batch["labels"], 10)
+                loss = cce(targets, probabilities)
 
             # We create a list of all variables. Note that a `tf.Module` automatically
             # tracks owned variables, so we could also use `self.trainable_variables`
@@ -79,25 +92,27 @@ class Model(tf.Module):
 
             # TODO: Compute the gradient of the loss with respect to variables using
             # backpropagation algorithm via `tape.gradient`
-            gradients = ...
+            gradients = tape.gradient(loss, variables)  # List[grad(W1), grad(b1), grad(W2), grad(b2)]
 
             for variable, gradient in zip(variables, gradients):
                 # TODO: Perform the SGD update with learning rate `self._args.learning_rate`
                 # for the variable and computed gradient. You can modify
                 # variable value with `variable.assign` or in this case the more
                 # efficient `variable.assign_sub`.
-                ...
+                variable.assign_sub(self._args.learning_rate * gradient)
+
 
     def evaluate(self, dataset: MNIST.Dataset) -> float:
         # Compute the accuracy of the model prediction
         correct = 0
         for batch in dataset.batches(self._args.batch_size):
             # TODO: Compute the probabilities of the batch images
-            probabilities = ...
+            probabilities = self.predict(batch["images"])
 
             # TODO: Evaluate how many batch examples were predicted
             # correctly and increase `correct` variable accordingly.
-            correct += ...
+            correct += tf.reduce_sum(tf.cast(batch["labels"] == tf.argmax(probabilities, axis=1), tf.float32))
+
 
         return correct / dataset.size
 
@@ -129,15 +144,16 @@ def main(args: argparse.Namespace) -> Tuple[float, float]:
 
     for epoch in range(args.epochs):
         # TODO: Run the `train_epoch` with `mnist.train` dataset
+        model.train_epoch(mnist.train)
 
         # TODO: Evaluate the dev data using `evaluate` on `mnist.dev` dataset
-        accuracy = ...
+        accuracy = model.evaluate(mnist.dev)
         print("Dev accuracy after epoch {} is {:.2f}".format(epoch + 1, 100 * accuracy), flush=True)
         with writer.as_default(step=epoch + 1):
             tf.summary.scalar("dev/accuracy", 100 * accuracy)
 
     # TODO: Evaluate the test data using `evaluate` on `mnist.test` dataset
-    test_accuracy = ...
+    test_accuracy = model.evaluate(mnist.test)
     print("Test accuracy after epoch {} is {:.2f}".format(epoch + 1, 100 * test_accuracy), flush=True)
     with writer.as_default(step=epoch + 1):
         tf.summary.scalar("test/accuracy", 100 * test_accuracy)

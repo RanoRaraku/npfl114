@@ -38,7 +38,11 @@ class Model(tf.Module):
         # - _W2, which is a trainable Variable of size [args.hidden_layer, MNIST.LABELS],
         #   initialized to `tf.random.normal` value with stddev=0.1 and seed=args.seed,
         # - _b2, which is a trainable Variable of size [MNIST.LABELS] initialized to zeros
-        ...
+        self._W2 = tf.Variable(
+            tf.random.normal([args.hidden_layer, MNIST.LABELS], stddev=0.1, seed=args.seed),
+            trainable=True,
+        )
+        self._b2 = tf.Variable(tf.zeros([MNIST.LABELS]), trainable=True)
 
     def predict(self, inputs: tf.Tensor) -> Tuple[tf.Tensor, tf.Tensor, tf.Tensor]:
         # TODO(sgd_backpropagation): Define the computation of the network. Notably:
@@ -49,13 +53,19 @@ class Model(tf.Module):
         # - apply `tf.nn.tanh`
         # - multiply the result by `self._W2` and then add `self._b2`
         # - finally apply `tf.nn.softmax` and return the result
+        x = tf.reshape(inputs, [inputs.shape[0], -1])
+        z1 = tf.matmul(x, self._W1) + self._b1
+        a1 = tf.nn.tanh(z1)
+        z2 = tf.matmul(a1, self._W2) + self._b2
+        a2 = tf.nn.softmax(z2)
 
         # TODO: In order to support manual gradient computation, you should
         # return not only the output layer, but also the hidden layer after applying
         # `tf.nn.tanh`, and the input layer after reshaping.
-        return ..., ..., ...
+        return x, a1, a2
 
     def train_epoch(self, dataset: MNIST.Dataset) -> None:
+
         for batch in dataset.batches(self._args.batch_size):
             # The batch contains
             # - batch["images"] with shape [?, MNIST.H, MNIST.W, MNIST.C]
@@ -67,9 +77,10 @@ class Model(tf.Module):
             # the gradient manually, without tf.GradientTape. ReCodEx checks
             # that `tf.GradientTape` is not used and if it is, your solution does
             # not pass.
-
+       
             # TODO: Compute the input layer, hidden layer and output layer
             # of the batch images using `self.predict`.
+            x, a1, a2 = self.predict(batch["images"])
 
             # TODO: Compute the gradient of the loss with respect to all
             # variables. Note that the loss is computed as in `sgd_backpropagation`:
@@ -86,23 +97,39 @@ class Model(tf.Module):
             #   `A[:, :, tf.newaxis] * B[:, tf.newaxis, :]`
             # or with
             #   `tf.einsum("ai,aj->aij", A, B)`
+            targets = tf.one_hot(batch["labels"], 10)
+            k = 1 / self._args.batch_size
 
             # TODO(sgd_backpropagation): Perform the SGD update with learning rate `self._args.learning_rate`
             # for the variable and computed gradient. You can modify
             # variable value with `variable.assign` or in this case the more
             # efficient `variable.assign_sub`.
-            ...
+            dz2 = a2 - targets
+            db2 = k * tf.math.reduce_sum(dz2, axis=0)
+            dW2 = k * tf.math.reduce_sum(tf.einsum("ai,aj->aij", a1, dz2), axis=0)
+
+            dz1 = tf.math.multiply(
+                1 - tf.math.square(a1),
+                dz2 @ tf.linalg.matrix_transpose(self._W2)
+            )
+            db1 = k * tf.math.reduce_sum(dz1, axis=0)
+            dW1 = k * tf.math.reduce_sum(tf.einsum("ai,aj->aij", x, dz1), axis=0)
+
+            gradients = [dW1, db1, dW2, db2]
+            variables = [self._W1, self._b1, self._W2, self._b2] 
+            for variable, gradient in zip(variables, gradients):
+                variable.assign_sub(self._args.learning_rate * gradient)
 
     def evaluate(self, dataset: MNIST.Dataset) -> float:
         # Compute the accuracy of the model prediction
         correct = 0
         for batch in dataset.batches(self._args.batch_size):
             # TODO: Compute the probabilities of the batch images
-            probabilities = ...
+            _, _, a2 = self.predict(batch["images"])
 
             # TODO(sgd_backpropagation): Evaluate how many batch examples were predicted
             # correctly and increase `correct` variable accordingly.
-            correct += ...
+            correct += tf.reduce_sum(tf.cast(batch["labels"] == tf.argmax(a2, axis=1), tf.float32))
 
         return correct / dataset.size
 
@@ -134,15 +161,16 @@ def main(args: argparse.Namespace) -> Tuple[float, float]:
 
     for epoch in range(args.epochs):
         # TODO(sgd_backpropagation): Run the `train_epoch` with `mnist.train` dataset
+        model.train_epoch(mnist.train)
 
         # TODO(sgd_backpropagation): Evaluate the dev data using `evaluate` on `mnist.dev` dataset
-        accuracy = ...
+        accuracy = model.evaluate(mnist.dev)
         print("Dev accuracy after epoch {} is {:.2f}".format(epoch + 1, 100 * accuracy), flush=True)
         with writer.as_default(step=epoch + 1):
             tf.summary.scalar("dev/accuracy", 100 * accuracy)
 
     # TODO(sgd_backpropagation): Evaluate the test data using `evaluate` on `mnist.test` dataset
-    test_accuracy = ...
+    test_accuracy = model.evaluate(mnist.test)
     print("Test accuracy after epoch {} is {:.2f}".format(epoch + 1, 100 * test_accuracy), flush=True)
     with writer.as_default(step=epoch + 1):
         tf.summary.scalar("test/accuracy", 100 * test_accuracy)
