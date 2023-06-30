@@ -52,8 +52,10 @@ def main(args: argparse.Namespace) -> Dict[str, float]:
 
     model = tf.keras.Sequential()
     model.add(tf.keras.layers.Flatten(input_shape=[MNIST.H, MNIST.W, MNIST.C]))
+    model.add(tf.keras.layers.Dropout(args.dropout))
     for hidden_layer in args.hidden_layers:
         model.add(tf.keras.layers.Dense(hidden_layer, activation=tf.nn.relu))
+        model.add(tf.keras.layers.Dropout(args.dropout))
     model.add(tf.keras.layers.Dense(MNIST.LABELS, activation=tf.nn.softmax))
 
     # TODO: Implement label smoothing with the given `args.label_smoothing` strength.
@@ -63,25 +65,34 @@ def main(args: argparse.Namespace) -> Dict[str, float]:
     # all gold labels (i.e., `mnist.{train,dev,test}.data["labels"]`) from indices
     # of the gold class to a full categorical distribution (you can use either NumPy,
     # or there is a helper method also in the `tf.keras.utils` module).
+    def smooth_labels(labels:np.ndarray, factor:float):
+        out = np.zeros(shape=(len(labels), 10),dtype=np.float16)
+        for idx, i in enumerate(labels):
+            out[idx,i] = 1 - factor
+            out[idx,:] += factor/10
+        return out
 
     # TODO: Create a `tf.optimizers.experimental.AdamW`, using the default learning
     # rate and a weight decay of strength `args.weight_decay`. Then call the
     # `exclude_from_weight_decay` method to specify that all variables with "bias"
     # in their name should not be decayed.
-    optimizer = ...
+    optimizer = tf.optimizers.experimental.AdamW(weight_decay=args.weight_decay)
+    optimizer.exclude_from_weight_decay(var_names=['bias'])
 
     model.compile(
         optimizer=optimizer,
-        loss=tf.losses.SparseCategoricalCrossentropy(),
-        metrics=[tf.metrics.SparseCategoricalAccuracy(name="accuracy")],
+        loss=tf.losses.CategoricalCrossentropy(label_smoothing=args.label_smoothing),
+        metrics=[tf.metrics.CategoricalAccuracy(name="accuracy")],
     )
 
     tb_callback = tf.keras.callbacks.TensorBoard(args.logdir, histogram_freq=1)
 
     logs = model.fit(
-        mnist.train.data["images"], mnist.train.data["labels"],
-        batch_size=args.batch_size, epochs=args.epochs,
-        validation_data=(mnist.dev.data["images"], mnist.dev.data["labels"]),
+        mnist.train.data["images"],
+        smooth_labels(mnist.train.data["labels"],0),
+        batch_size=args.batch_size,
+        epochs=args.epochs,
+        validation_data=(mnist.dev.data["images"], smooth_labels(mnist.dev.data["labels"], 0)),
         callbacks=[tb_callback],
     )
 

@@ -6,8 +6,9 @@ import zipfile
 os.environ.setdefault("TF_CPP_MIN_LOG_LEVEL", "2")  # Report only TF errors by default
 
 import numpy as np
-import tensorflow as tf
-
+import torch
+from torch.utils.data import Dataset
+import torch.nn.functional as F
 
 # Loads the Uppercase data.
 # - The data consists of three Datasets
@@ -30,14 +31,30 @@ import tensorflow as tf
 #            the corresponding input in `windows` is lowercased/uppercased
 #   - `text`: the original text (of course lowercased in case of the test set)
 #   - `alphabet`: an alphabet used by `windows`
-#   - `dataset`: a TensorFlow `tf.data.Dataset` producing as examples dictionaries
+#   - `dataset`: a PyTorch `tf.utils..Dataset` producing as examples dictionaries
 #       with keys "windows" and "labels"
+
+
+class DataFromDict(Dataset):
+    def __init__(self,input_dict ):
+        self.input_dict = input_dict
+        self.input_keys = list(input_dict.keys())
+
+    def __len__(self):
+        return len(self.input_keys)
+
+    def __getitem__(self,idx):
+        item = self.input_dict[self.img_keys[idx]]['item_key']
+        label = self.input_dict[self.img_keys[idx]]['label_key']
+        return item, label
+
+
 class UppercaseData:
     LABELS: int = 2
 
     _URL: str = "https://ufal.mff.cuni.cz/~straka/courses/npfl114/2223/datasets/uppercase_data.zip"
 
-    class Dataset:
+    class CharDataset(Dataset):
         def __init__(self, data: str, window: int, alphabet: Union[int, List[str]], seed: int = 42) -> None:
             self._window = window
             self._text = data
@@ -61,7 +78,11 @@ class UppercaseData:
                     if alphabet and len(alphabet_map) >= alphabet:
                         break
 
+            # Compute alphabet
             self.alphabet_map = alphabet_map
+            self._alphabet = [None] * len(alphabet_map)
+            for key, value in alphabet_map.items():
+                self._alphabet[value] = key
 
             # Remap lowercased input characters using the alphabet_map
             lcletters = np.zeros(self._size + 2 * window, np.int16)
@@ -72,17 +93,23 @@ class UppercaseData:
                 lcletters[i + window] = alphabet_map[char]
 
             # Generate input batches
-            windows = np.zeros([self._size, 2 * window + 1], np.int16)
-            labels = np.zeros(self._size, np.uint8)
+            samples = torch.zeros(self._size, 2 * window + 1, dtype=torch.int16)
+            labels = torch.zeros([self._size, 1], dtype=torch.int16)
             for i in range(self._size):
-                windows[i] = lcletters[i:i + 2 * window + 1]
-                labels[i] = self._text[i].isupper()
-            self._data = {"windows": windows, "labels": labels}
+                samples[i] = torch.from_numpy(lcletters[i:i + 2 * window + 1])
+                labels[i] = torch.as_tensor(1 * self._text[i].isupper(), dtype=torch.int16)
+            self._samples = samples
+            self._labels = labels
 
-            # Compute alphabet
-            self._alphabet = [None] * len(alphabet_map)
-            for key, value in alphabet_map.items():
-                self._alphabet[value] = key
+        def __len__(self):
+            return len(self._labels)
+
+        def __getitem__(self, idx):
+            return {
+                "idx":idx,
+                "sample":torch.nn.functional.one_hot(self._samples[idx].to(torch.int64),len(self.alphabet)).to(torch.float32),
+                "label":self._labels[idx].to(torch.float32)
+            }
 
         @property
         def alphabet(self) -> List[str]:
@@ -93,16 +120,9 @@ class UppercaseData:
             return self._text
 
         @property
-        def data(self) -> Dict[str, np.ndarray]:
-            return self._data
-
-        @property
         def size(self) -> int:
             return self._size
 
-        @property
-        def dataset(self) -> tf.data.Dataset:
-            return tf.data.Dataset.from_tensor_slices(self._data)
 
     def __init__(self, window: int, alphabet_size: int = 0):
         path = os.path.basename(self._URL)
@@ -115,19 +135,19 @@ class UppercaseData:
             for dataset in ["train", "dev", "test"]:
                 with zip_file.open("{}_{}.txt".format(os.path.splitext(path)[0], dataset), "r") as dataset_file:
                     data = dataset_file.read().decode("utf-8")
-                setattr(self, dataset, self.Dataset(
+                setattr(self, dataset, self.CharDataset(
                     data,
                     window,
                     alphabet=alphabet_size if dataset == "train" else self.train.alphabet,
                 ))
 
-    train: Dataset
-    dev: Dataset
-    test: Dataset
+    train: CharDataset
+    dev: CharDataset
+    test: CharDataset
 
     # Evaluation infrastructure.
     @staticmethod
-    def evaluate(gold_dataset: Dataset, predictions: str) -> float:
+    def evaluate(gold_dataset: CharDataset, predictions: str) -> float:
         gold = gold_dataset.text
 
         if len(predictions) < len(gold):
@@ -146,7 +166,7 @@ class UppercaseData:
         return 100 * correct / len(gold)
 
     @staticmethod
-    def evaluate_file(gold_dataset: Dataset, predictions_file: TextIO) -> float:
+    def evaluate_file(gold_dataset: CharDataset, predictions_file: TextIO) -> float:
         predictions = predictions_file.read()
         return UppercaseData.evaluate(gold_dataset, predictions)
 

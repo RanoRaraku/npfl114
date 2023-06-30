@@ -23,6 +23,18 @@ parser.add_argument("--threads", default=1, type=int, help="Maximum number of th
 # If you add more arguments, ReCodEx will keep them with your default values.
 
 
+def ensemble_evaluate(models, testX, testY):
+    # make predictions
+    yhats = [model.predict(testX) for model in models]
+    yhats = np.array(yhats)
+
+    # sum across ensemble members
+    summed = np.sum(yhats, axis=0)
+    # argmax across classes
+    result = np.argmax(summed, axis=1)
+    # return accuracy
+    return np.sum(result == testY) / len(testY)
+
 def main(args: argparse.Namespace) -> Tuple[List[float], List[float]]:
     # Set the random seed and the number of threads.
     tf.keras.utils.set_random_seed(args.seed)
@@ -58,9 +70,12 @@ def main(args: argparse.Namespace) -> Tuple[List[float], List[float]]:
         print("Done", file=sys.stderr)
 
     individual_accuracies, ensemble_accuracies = [], []
-    for model in range(args.models):
+    for idx in range(args.models):
         # TODO: Compute the accuracy on the dev set for the individual `models[model]`.
-        individual_accuracy = ...
+        _, individual_accuracy = models[idx].evaluate(
+            x=mnist.dev.data["images"],
+            y=mnist.dev.data["labels"],
+        )
 
         # TODO: Compute the accuracy on the dev set for the ensemble `models[0:model+1]`.
         #
@@ -71,9 +86,13 @@ def main(args: argparse.Namespace) -> Tuple[List[float], List[float]]:
         #    the required metric (without an optimizer and a loss) and use `model.evaluate`.
         # 2) Manually perform the averaging (using TF or NumPy). In this case you do not
         #    need to construct Keras ensemble model at all, and instead call `model.predict`
-        #    on the individual models and  average the results. To measure accuracy,
+        #    on the individual models and average the results. To measure accuracy,
         #    either do it completely  manually or use `tf.metrics.SparseCategoricalAccuracy`.
-        ensemble_accuracy = ...
+        ensemble_accuracy = ensemble_evaluate(
+            models[:idx+1],
+            mnist.dev.data["images"],
+            mnist.dev.data["labels"]
+        )
 
         # Store the accuracies
         individual_accuracies.append(individual_accuracy)
