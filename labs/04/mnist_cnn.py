@@ -16,7 +16,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument("--batch_size", default=50, type=int, help="Batch size.")
 parser.add_argument("--cnn", default=None, type=str, help="CNN architecture.")
 parser.add_argument("--debug", default=False, action="store_true", help="If given, run functions eagerly.")
-parser.add_argument("--epochs", default=10, type=int, help="Number of epochs.")
+parser.add_argument("--epochs", default=1, type=int, help="Number of epochs.")
 parser.add_argument("--recodex", default=False, action="store_true", help="Evaluation in ReCodEx.")
 parser.add_argument("--seed", default=42, type=int, help="Random seed.")
 parser.add_argument("--threads", default=1, type=int, help="Maximum number of threads to use.")
@@ -24,34 +24,54 @@ parser.add_argument("--threads", default=1, type=int, help="Maximum number of th
 
 
 class Model(tf.keras.Model):
+
+
     def __init__(self, args: argparse.Namespace) -> None:
         # TODO: Create the model. The template uses the functional API, but
         # feel free to use subclassing if you want.
         inputs = tf.keras.layers.Input(shape=[MNIST.H, MNIST.W, MNIST.C])
 
-        # TODO: Add CNN layers specified by `args.cnn`, which contains
-        # a comma-separated list of the following layers:
-        # - `C-filters-kernel_size-stride-padding`: Add a convolutional layer with ReLU
-        #   activation and specified number of filters, kernel size, stride and padding.
-        # - `CB-filters-kernel_size-stride-padding`: Same as `C`, but use batch normalization.
-        #   In detail, start with a convolutional layer without bias and activation,
-        #   then add a batch normalization layer, and finally the ReLU activation.
-        # - `M-pool_size-stride`: Add max pooling with specified size and stride, using
-        #   the default "valid" padding.
-        # - `R-[layers]`: Add a residual connection. The `layers` contain a specification
-        #   of at least one convolutional layer (but not a recursive residual connection `R`).
-        #   The input to the `R` layer should be processed sequentially by `layers`, and the
-        #   produced output (after the ReLU nonlinearity of the last layer) should be added
-        #   to the input (of this `R` layer).
-        # - `F`: Flatten inputs. Must appear exactly once in the architecture.
-        # - `H-hidden_layer_size`: Add a dense layer with ReLU activation and the specified size.
-        # - `D-dropout_rate`: Apply dropout with the given dropout rate.
-        # You can assume the resulting network is valid; it is fine to crash if it is not.
-        #
-        # Produce the results in the variable `hidden`.
-        hidden = ...
+        ## 1 --cnn=F,H-100
+        #flatten = tf.keras.layers.Flatten()(inputs)
+        #hidden = tf.keras.layers.Dense(100, activation=tf.nn.relu)(flatten)
+        
+        ## 2 --cnn=F,H-100,D-0.5
+        #flatten = tf.keras.layers.Flatten()(inputs)
+        #hidden = tf.keras.layers.Dense(100, activation=tf.nn.relu)(flatten)
+        #hidden = tf.keras.layers.Dropout(0.5)(hidden)
 
-        # Add the final output layer
+        ## 3 --cnn=M-5-2,F,H-50
+        #hidden = tf.keras.layers.MaxPool2D((5,5),2)(inputs)
+        #hidden = tf.keras.layers.Flatten()(hidden)
+        #hidden = tf.keras.layers.Dense(50, activation=tf.nn.relu)(hidden)
+
+        ## 4 --cnn=C-8-3-5-same,C-8-3-2-valid,F,H-50
+        #hidden = tf.keras.layers.Conv2D(8,3,5,padding="same", activation=tf.nn.relu)(inputs)
+        #hidden = tf.keras.layers.Conv2D(8,3,2,padding="valid", activation=tf.nn.relu)(hidden)
+        #hidden = tf.keras.layers.Flatten()(hidden)
+        #hidden = tf.keras.layers.Dense(50, activation=tf.nn.relu)(hidden)
+
+        ## 5 --cnn=CB-6-3-5-valid,F,H-32
+        #hidden = tf.keras.layers.Conv2D(6,3,5,use_bias=False)(inputs)
+        #hidden = tf.keras.layers.BatchNormalization()(hidden)
+        #hidden = tf.keras.layers.Flatten()(hidden)
+        #hidden = tf.keras.layers.Dense(32, activation=tf.nn.relu)(hidden)        
+
+        ## 6 --cnn=CB-8-3-5-valid,R-[CB-8-3-1-same,CB-8-3-1-same],F,H-50
+        hidden = tf.keras.layers.Conv2D(8,3,5,use_bias=False, padding="valid")(inputs)
+        hidden = tf.keras.layers.BatchNormalization()(hidden)
+        hidden = tf.keras.layers.ReLU()(hidden)
+        hidden_1 = tf.keras.layers.Conv2D(8,3,1,use_bias=False, padding="same")(hidden)
+        hidden_1 = tf.keras.layers.BatchNormalization()(hidden_1)
+        hidden_1 = tf.keras.layers.ReLU()(hidden_1)
+        hidden_1 = tf.keras.layers.Conv2D(8,3,1,use_bias=False, padding="same")(hidden_1)
+        hidden_1 = tf.keras.layers.BatchNormalization()(hidden_1)
+        hidden_1 = tf.keras.layers.ReLU()(hidden_1)
+        hidden_1 = tf.keras.layers.Add()([hidden_1, hidden])    # <- Residual
+
+        ## Output
+        hidden = tf.keras.layers.Flatten()(hidden_1)
+        hidden = tf.keras.layers.Dense(50, activation=tf.nn.relu)(hidden) 
         outputs = tf.keras.layers.Dense(MNIST.LABELS, activation=tf.nn.softmax)(hidden)
 
         super().__init__(inputs=inputs, outputs=outputs)

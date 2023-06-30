@@ -37,6 +37,17 @@ class Model(tf.keras.Model):
         # - flattening layer,
         # - fully connected layer with 200 neurons and ReLU activation,
         # obtaining a 200-dimensional feature vector FV of each image.
+        shared_conv = tf.keras.Sequential(
+            layers = [
+                tf.keras.layers.Conv2D(10,3,2,padding="valid", activation=tf.nn.relu),
+                tf.keras.layers.Conv2D(10,3,2,padding="valid", activation=tf.nn.relu),
+                tf.keras.layers.Flatten(),
+                tf.keras.layers.Dense(200, activation=tf.nn.relu),
+            ],
+            name="shared_conv",
+        )
+        hidden_1 = shared_conv(images[0])
+        hidden_2 = shared_conv(images[1])
 
         # TODO: Using the computed representations, the model should produce four outputs:
         # - first, compute _direct comparison_ whether the first digit is
@@ -51,12 +62,24 @@ class Model(tf.keras.Model):
         # - finally, compute _indirect comparison_ whether the first digit
         #   is greater than second, by comparing the predictions from the above
         #   two outputs.
+        direct_out = tf.keras.layers.Concatenate()([hidden_1, hidden_2])
+        direct_out = tf.keras.layers.Dense(200, activation=tf.nn.relu)(direct_out)
+        direct_out = tf.keras.layers.Dense(1, activation=tf.nn.sigmoid)(direct_out)
+
+        pred_layer = tf.keras.layers.Dense(10, activation=tf.nn.softmax)
+        pred_1 = pred_layer(hidden_1)
+        pred_2 = pred_layer(hidden_2)
+
+        indirect_out = tf.math.argmax(pred_1, axis=1) > tf.math.argmax(pred_2, axis=1)
+
         outputs = {
-            "direct_comparison": ...,
-            "digit_1": ...,
-            "digit_2": ...,
-            "indirect_comparison": ...,
+            "direct_comparison": direct_out,
+            "digit_1": pred_1,
+            "digit_2": pred_2,
+            "indirect_comparison": indirect_out,
         }
+
+        tf.losses.BinaryCrossentropy
 
         # Finally, construct the model.
         super().__init__(inputs=images, outputs=outputs)
@@ -75,16 +98,17 @@ class Model(tf.keras.Model):
         self.compile(
             optimizer=tf.keras.optimizers.Adam(jit_compile=False),
             loss={
-                "direct_comparison": ...,
-                "digit_1": ...,
-                "digit_2": ...,
+                "direct_comparison": tf.losses.BinaryCrossentropy(),
+                "digit_1": tf.losses.SparseCategoricalCrossentropy(),
+                "digit_2": tf.losses.SparseCategoricalCrossentropy(),
             },
             metrics={
-                "direct_comparison": [...],
-                "indirect_comparison": [...],
+                "direct_comparison": tf.metrics.BinaryAccuracy(name="accuracy"),
+                "indirect_comparison": tf.metrics.BinaryAccuracy(name="accuracy"),
             },
         )
         self.tb_callback = tf.keras.callbacks.TensorBoard(args.logdir)
+        self.summary()
 
     # Create an appropriate dataset using the MNIST data.
     def create_dataset(
@@ -94,9 +118,12 @@ class Model(tf.keras.Model):
         dataset = tf.data.Dataset.from_tensor_slices((mnist_dataset.data["images"], mnist_dataset.data["labels"]))
 
         # TODO: If `training`, shuffle the data with `buffer_size=10_000` and `seed=args.seed`.
+        if training:
+            dataset = dataset.shuffle(10000, seed=args.seed)
 
         # TODO: Combine pairs of examples by creating batches of size exactly 2 (you would throw
         # away the last example if the original dataset size were odd; but in MNIST it is even).
+        dataset = dataset.batch(2)
 
         # TODO: Map pairs of images to elements suitable for our model. Notably,
         # the elements should be pairs `(input, output)`, with
@@ -104,10 +131,20 @@ class Model(tf.keras.Model):
         # - `output` being a dictionary with keys "digit_1", "digit_2", "direct_comparison",
         #   and "indirect_comparison".
         def create_element(images, labels):
-            ...
+            return (
+                (images[0], images[1]),
+                {
+                    "digit_1":labels[0],
+                    "digit_2":labels[1],
+                    "direct_comparison": 1 if labels[0] > labels[1] else 0,
+                    "indirect_comparison": 1 if labels[0] > labels[1] else 0,
+                }
+            )
+
         dataset = dataset.map(create_element)
 
         # TODO: Create batches of size `args.batch_size`
+        dataset = dataset.batch(args.batch_size)
 
         return dataset
 
