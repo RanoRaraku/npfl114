@@ -19,12 +19,19 @@ parser.add_argument("--learning_rate", default=0.01, type=float, help="Learning 
 parser.add_argument("--recodex", default=False, action="store_true", help="Evaluation in ReCodEx.")
 parser.add_argument("--seed", default=42, type=int, help="Random seed.")
 parser.add_argument("--threads", default=1, type=int, help="Maximum number of threads to use.")
-parser.add_argument("--verify", default=False, action="store_true", help="Verify the implementation.")
+parser.add_argument("--verify", default=True, action="store_true", help="Verify the implementation.")
 # If you add more arguments, ReCodEx will keep them with your default values.
 
 
 class Convolution:
     def __init__(self, filters: int, kernel_size: int, stride: int, input_shape: List[int], verify: bool) -> None:
+        """
+        Args:
+        :filters: # output channels 
+        :kernel_size:
+        :stride:
+        :input_shape:
+        """
         # Create a convolutional layer with the given arguments
         # and given input shape (e.g., [28, 28, 1]).
         self._filters = filters
@@ -45,7 +52,24 @@ class Convolution:
         # manually iterate through the individual pixels, batch examples,
         # input filters, or output filters. However, you can manually
         # iterate through the kernel size.
-        output = ...
+        batch_size, input_height, input_width, input_channels = inputs.shape
+        kernel_height, kernel_width, _, output_channels = self._kernel.shape
+
+        output_height = int((input_height - kernel_height) / self._stride) + 1
+        output_width = int((input_width - kernel_width) / self._stride) + 1
+
+        output = np.zeros((batch_size, output_height, output_width, output_channels))
+        for b in range(batch_size):
+            for i in range(output_height):
+                for j in range(output_width):
+                    for oc in range(output_channels):
+                        for ic in range(input_channels):
+                            output[b, i, j, oc] += np.sum(
+                                inputs[b, i*self._stride:i*self._stride+kernel_height, j*self._stride:j*self._stride+kernel_width, ic] *
+                                self._kernel[:, :, ic, oc] + self._bias[oc]
+                            )
+
+        output = tf.nn.relu(output)
 
         # If requested, verify that `output` contains a correct value.
         if self._verify:
