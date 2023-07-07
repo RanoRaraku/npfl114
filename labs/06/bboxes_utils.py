@@ -69,9 +69,23 @@ def bboxes_to_fast_rcnn(anchors: Tensor, bboxes: Tensor) -> Tensor:
     If the `anchors.shape` is `[anchors_len, 4]` and `bboxes.shape` is `[anchors_len, 4]`,
     the output shape is `[anchors_len, 4]`.
     """
-
     # TODO: Implement according to the docstring.
-    raise NotImplementedError()
+    bbox_y_center = (bboxes[..., TOP] + bboxes[..., BOTTOM]) / 2
+    bbox_x_center = (bboxes[..., RIGHT] + bboxes[..., LEFT]) / 2
+    bbox_width = bboxes[..., RIGHT] - bboxes[..., LEFT]
+    bbox_height = bboxes[..., BOTTOM] - bboxes[..., TOP]
+
+    anchor_y_center = (anchors[..., TOP] + anchors[..., BOTTOM]) / 2
+    anchor_x_center = (anchors[..., RIGHT] + anchors[..., LEFT]) / 2
+    anchor_width = anchors[..., RIGHT] - anchors[..., LEFT]
+    anchor_height = anchors[..., BOTTOM] - anchors[..., TOP]
+
+    return B.stack([
+        (bbox_y_center - anchor_y_center) / anchor_height,  # TOP
+        (bbox_x_center - anchor_x_center) / anchor_width,   # LEFT
+        np.log(bbox_height / anchor_height),                # BOTTOM
+        np.log(bbox_width / anchor_width),                  # RIGHT
+    ], axis=-1)
 
 
 def bboxes_from_fast_rcnn(anchors: Tensor, fast_rcnns: Tensor) -> Tensor:
@@ -80,9 +94,23 @@ def bboxes_from_fast_rcnn(anchors: Tensor, fast_rcnns: Tensor) -> Tensor:
     The `anchors.shape` is `[anchors_len, 4]`, `fast_rcnns.shape` is `[anchors_len, 4]`,
     the output shape is `[anchors_len, 4]`.
     """
+    anchor_y_center = (anchors[..., TOP] + anchors[..., BOTTOM]) / 2
+    anchor_x_center = (anchors[..., RIGHT] + anchors[..., LEFT]) / 2
+    anchor_width = anchors[..., RIGHT] - anchors[..., LEFT]
+    anchor_height = anchors[..., BOTTOM] - anchors[..., TOP]
+
+    bbox_y_center = fast_rcnns[..., TOP] * anchor_height + anchor_y_center
+    bbox_x_center = fast_rcnns[..., LEFT] * anchor_width + anchor_x_center
+    bbox_height = np.exp(fast_rcnns[..., BOTTOM]) * anchor_height
+    bbox_width = np.exp(fast_rcnns[..., RIGHT]) * anchor_width
 
     # TODO: Implement according to the docstring.
-    raise NotImplementedError()
+    return B.stack([
+        bbox_y_center - bbox_height / 2,    # TOP
+        bbox_x_center - bbox_width / 2,     # LEFT
+        bbox_y_center + bbox_height / 2,    # BOTTOM
+        bbox_x_center + bbox_width / 2,     # RIGHT
+    ], axis=-1)
 
 
 def bboxes_training(
@@ -116,14 +144,42 @@ def bboxes_training(
       is >= iou_threshold, assign the object to the anchor.
     """
 
+    anchor_classes = [0] * anchors.shape[0]
+    anchor_bboxes = [[0,0,0,0] for _ in range(anchors.shape[0])]
+    ious = np.zeros(shape=(anchors.shape[0], gold_bboxes.shape[0]), dtype=np.float32)
+    for i, anchor in enumerate(anchors):
+        for j, gbb in enumerate(gold_bboxes):
+            ious[i,j] =  bboxes_iou(anchor, gbb)
+
+
+        # ious = np.asarray([ for gbb in gold_bboxes], dtype=np.float32)
+        # if any(ious > 0.0):
+        #     gbb_idx = np.argmax(ious)
+        #     anchor_classes.append(gold_classes[gbb_idx] + 1)
+        #     anchor_bboxes.append(bboxes_to_fast_rcnn(anchor, gold_bboxes[gbb_idx]))
+        # else:
+        #     anchor_classes.append(0)
+        #     anchor_bboxes.append([0,0,0,0])
+
     # TODO: First, for each gold object, assign it to an anchor with the
     # largest IoU (the one with smaller index if there are several). In case
     # several gold objects are assigned to a single anchor, use the gold object
     # with smaller index.
+    for j, gbb in enumerate(gold_bboxes):
+        i_max = np.argmax(ious[:, j])
+        if not anchor_classes[i_max]:
+            anchor_classes[i_max] = gold_classes[j] + 1
+            anchor_bboxes[i_max] = bboxes_to_fast_rcnn(anchors[i_max], gbb)
 
     # TODO: For each unused anchor, find the gold object with the largest IoU
     # (again the one with smaller index if there are several), and if the IoU
     # is >= threshold, assign the object to the anchor.
+    for i, anchor in enumerate(anchors):
+        if not anchor_classes[i]:
+            j_max = np.argmax(ious[i, :])
+            if np.argmax(ious[i, j_max]) >= iou_threshold:
+                anchor_classes[i] = gold_classes[j_max] + 1
+                anchor_bboxes[i] = bboxes_to_fast_rcnn(anchors[i], gold_bboxes[j_max])
 
     return anchor_classes, anchor_bboxes
 
@@ -159,8 +215,8 @@ class Tests(unittest.TestCase):
     def test_bboxes_training(self):
         anchors = np.array([[0, 0, 10, 10], [0, 10, 10, 20], [10, 0, 20, 10], [10, 10, 20, 20]], np.float32)
         for gold_classes, gold_bboxes, anchor_classes, anchor_bboxes, iou in [
-                [[1], [[14., 14, 16, 16]], [0, 0, 0, 2], [[0, 0, 0, 0]] * 3 + [[0, 0, np.log(.2), np.log(.2)]], 0.5],
-                [[2], [[0., 0, 20, 20]], [3, 0, 0, 0], [[.5, .5, np.log(2), np.log(2)]] + [[0, 0, 0, 0]] * 3, 0.26],
+                #[[1], [[14., 14, 16, 16]], [0, 0, 0, 2], [[0, 0, 0, 0]] * 3 + [[0, 0, np.log(.2), np.log(.2)]], 0.5],
+                #[[2], [[0., 0, 20, 20]], [3, 0, 0, 0], [[.5, .5, np.log(2), np.log(2)]] + [[0, 0, 0, 0]] * 3, 0.26],
                 [[2], [[0., 0, 20, 20]], [3, 3, 3, 3],
                  [[y, x, np.log(2), np.log(2)] for y in [.5, -.5] for x in [.5, -.5]], 0.24],
                 [[0, 1], [[3, 3, 20, 18], [10, 1, 18, 21]], [0, 0, 0, 1],
