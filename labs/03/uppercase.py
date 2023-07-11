@@ -5,8 +5,8 @@ import os
 import re
 os.environ.setdefault("TF_CPP_MIN_LOG_LEVEL", "2")  # Report only TF errors by default
 
-import numpy as np
 import tensorflow as tf
+from tensorflow import keras
 
 from uppercase_data import UppercaseData
 
@@ -14,18 +14,55 @@ from uppercase_data import UppercaseData
 # `alphabet_size`, `batch_size`, `epochs`, and `window`.
 # Also, you can set the number of threads to 0 to use all your CPU cores.
 parser = argparse.ArgumentParser()
-parser.add_argument("--alphabet_size", default=..., type=int, help="If given, use this many most frequent chars.")
-parser.add_argument("--batch_size", default=..., type=int, help="Batch size.")
+parser.add_argument("--alphabet_size", default=100, type=int, help="If given, use this many most frequent chars.")
+parser.add_argument("--batch_size", default=1024 , type=int, help="Batch size.")
 parser.add_argument("--debug", default=False, action="store_true", help="If given, run functions eagerly.")
-parser.add_argument("--epochs", default=..., type=int, help="Number of epochs.")
+parser.add_argument("--epochs", default=10, type=int, help="Number of epochs.")
 parser.add_argument("--seed", default=42, type=int, help="Random seed.")
 parser.add_argument("--threads", default=1, type=int, help="Maximum number of threads to use.")
-parser.add_argument("--window", default=..., type=int, help="Window size to use.")
+parser.add_argument("--window", default=7, type=int, help="Window size to use.")
+parser.add_argument("--hidden_size", default=2048, type=int, help="Hidden layer size.")
+parser.add_argument("--label_smoothing", default=0.3, type=float, help="Label smoothing")
+parser.add_argument("--lr_decay", default=False, type=bool, help="Learning Rate decay.")
+parser.add_argument("--dropout",default=0.1, type=float, help="Dropout rate")
+
+
+# Functional API
+class CharModel(tf.keras.Model):
+    def __init__(self, args) -> None:
+        inputs = keras.layers.Input(shape=[2 * args.window + 1], dtype=tf.int32)
+        hidden = keras.layers.Lambda(lambda x: tf.one_hot(x, args.alphabet_size + 2))(inputs)
+        # hidden = keras.layers.Conv1D(
+        #     filters=2*args.window+1,
+        #     kernel_size=args.alphabet_size + 2,
+        #     data_format="channels_first",
+        #     groups=2*args.window+1,
+        # )(hidden)     # takes too long to train
+        hidden = keras.layers.Flatten()(hidden)
+        hidden = keras.layers.Dense(args.hidden_size, activation=tf.nn.relu)(hidden)
+        hidden = keras.layers.Dropout(args.dropout)(hidden)
+        outputs = tf.keras.layers.Dense(1, activation=tf.nn.sigmoid)(hidden)
+        super().__init__(inputs=inputs, outputs=outputs)
+
+
+        lr_schedule = keras.optimizers.schedules.ExponentialDecay(
+            initial_learning_rate=0.001,
+            decay_steps=6000,
+            decay_rate=0.96,
+            staircase=True
+        )
+        self.compile(
+            optimizer=tf.optimizers.AdamW(learning_rate=lr_schedule, jit_compile=False),
+            loss=tf.losses.BinaryCrossentropy(label_smoothing=args.label_smoothing),
+            metrics=[tf.metrics.BinaryAccuracy(name="accuracy")],
+        )
+        self.tb_callback = keras.callbacks.TensorBoard(args.logdir)
+
 
 
 def main(args: argparse.Namespace) -> None:
     # Set the random seed and the number of threads.
-    tf.keras.utils.set_random_seed(args.seed)
+    keras.utils.set_random_seed(args.seed)
     tf.config.threading.set_inter_op_parallelism_threads(args.threads)
     tf.config.threading.set_intra_op_parallelism_threads(args.threads)
     if args.debug:
@@ -40,39 +77,23 @@ def main(args: argparse.Namespace) -> None:
     ))
 
     # Load data
-    uppercase_data = UppercaseData(args.window, args.alphabet_size)
+    dset = UppercaseData(args.window, args.alphabet_size)
 
-    # TODO: Implement a suitable model, optionally including regularization, select
-    # good hyperparameters and train the model.
-    #
-    # The inputs are _windows_ of fixed size (`args.window` characters on the left,
-    # the character in question, and `args.window` characters on the right), where
-    # each character is represented by a `tf.int32` index. To suitably represent
-    # the characters, you can:
-    # - Convert the character indices into _one-hot encoding_. There is no
-    #   explicit Keras layer, but you can
-    #   - use a Lambda layer which can encompass any function:
-    #       tf.keras.Sequential([
-    #         tf.keras.layers.Input(shape=[2 * args.window + 1], dtype=tf.int32),
-    #         tf.keras.layers.Lambda(lambda x: tf.one_hot(x, len(uppercase_data.train.alphabet))),
-    #         ...
-    #       ])
-    #   - or use Functional API and then any TF function can be used
-    #     as a Keras layer:
-    #       inputs = tf.keras.layers.Input(shape=[2 * args.window + 1], dtype=tf.int32)
-    #       encoded = tf.one_hot(inputs, len(uppercase_data.train.alphabet))
-    #   You can then flatten the one-hot encoded windows and follow with a dense layer.
-    # - Alternatively, you can use `tf.keras.layers.Embedding` (which is an efficient
-    #   implementation of one-hot encoding followed by a Dense layer) and flatten afterwards.
-    model = ...
+    # Train model
+    model = CharModel(args)
+    model.fit(
+        x=dset.train.data["windows"],
+        y=dset.train.data["labels"],
+        validation_data=(dset.dev.data["windows"],dset.dev.data["labels"]),
+        batch_size=args.batch_size,
+        epochs=args.epochs,
+        callbacks=[model.tb_callback],
+    )
 
-    # TODO: Generate correctly capitalized test set.
-    # Use `uppercase_data.test.text` as input, capitalize suitable characters,
-    # and write the result to predictions_file (which is
-    # `uppercase_test.txt` in the `args.logdir` directory).
+    # Generate correctly capitalized test set.
     os.makedirs(args.logdir, exist_ok=True)
     with open(os.path.join(args.logdir, "uppercase_test.txt"), "w", encoding="utf-8") as predictions_file:
-        ...
+        pred = model.predict(dset.dev.data["windows"])
 
 
 if __name__ == "__main__":
