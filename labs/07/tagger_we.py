@@ -27,31 +27,56 @@ parser.add_argument("--we_dim", default=128, type=int, help="Word embedding dime
 
 
 class Model(tf.keras.Model):
+    """
+    Tento model berie vety ako vstup, slovo po slove, a pre kazde slovo povie aky
+    slovny druh to je. TZN many-to-many RNN. Slovo reprezentujem WordEmdeddingom.
+    """
     def __init__(self, args: argparse.Namespace, train: MorphoDataset.Dataset) -> None:
         # Implement a one-layer RNN network. The input `words` is
         # a `RaggedTensor` of strings, each batch example being a list of words.
+        #
+        # MB: Inputs are sentences (`dtype=tf.string`) as ragged tensors (`ragged=True`)
+        # of variable length (`shape=[None]`) we dont know how long ATM.
         words = tf.keras.layers.Input(shape=[None], dtype=tf.string, ragged=True)
 
         # TODO: Map strings in `words` to indices by using the `word_mapping` of `train.forms`.
+        words_idx = train.forms.word_mapping(words)
 
         # TODO: Embed input words with dimensionality `args.we_dim`. Note that the `word_mapping`
         # provides a `vocabulary_size()` call returning the number of unique words in the mapping.
+        embeddings = tf.keras.layers.Embedding(
+            train.forms.word_mapping.vocabulary_size(),
+            args.we_dim,
+        )(words_idx)
 
         # TODO: Create the specified `args.rnn` RNN layer ("LSTM" or "GRU") with
         # dimension `args.rnn_dim`. The layer should produce an output for every
         # sequence element (so a 3D output). Then apply it in a bidirectional way on
         # the embedded words, **summing** the outputs of forward and backward RNNs.
+        #
+        #
+        # MB: `tf.keras.layers.Bidirectional` is a wrapper around any RNN layer
+        # to do bidirectional processing. Output is controlled by `merge_mode`.
+        rnn_layer = getattr(tf.keras.layers, args.rnn)
+        rnn_hidden = tf.keras.layers.Bidirectional(
+            layer=rnn_layer(units=args.rnn_dim, return_sequences=True),
+            merge_mode='sum',
+        )(embeddings)
+
 
         # TODO: Add a softmax classification layer into as many classes as there are unique
         # tags in the `word_mapping` of `train.tags`. Note that the Dense layer can process
         # a `RaggedTensor` without any problem.
-        predictions = ...
+        tags_num = train.tags.word_mapping.vocabulary_size()
+        predictions = tf.keras.layers.Dense(tags_num, activation=tf.nn.softmax)(rnn_hidden)
 
         # Check that the created predictions are a 3D tensor.
         assert predictions.shape.rank == 3
 
         super().__init__(inputs=words, outputs=predictions)
 
+        # MB: aby loss vedela ako pracovat s ragged_tensorom, `y_true.values` splacati ragged tensor
+        # do akoby listu, uz nezalezi na tom z ktorej vety slovo je
         def ragged_sparse_categorical_crossentropy(y_true, y_pred):
             return tf.losses.SparseCategoricalCrossentropy()(y_true.values, y_pred.values)
 
@@ -89,15 +114,16 @@ def main(args: argparse.Namespace) -> Dict[str, float]:
     # - a tensor of integer tag ids as targets.
     # To create the tag ids, use the `word_mapping` of `morpho.train.tags`.
     def extract_tagging_data(example):
-        raise NotImplementedError()
+        return (example["forms"], morpho.train.tags.word_mapping(example["tags"]))
 
     def create_dataset(name):
         dataset = getattr(morpho, name).dataset
-        dataset = dataset.map(extract_tagging_data)
+        dataset = dataset.map(extract_tagging_data) # MB: dataset.map() sa aplikuje vzorek po vzorku
         dataset = dataset.shuffle(len(dataset), seed=args.seed) if name == "train" else dataset
         dataset = dataset.apply(tf.data.experimental.dense_to_ragged_batch(args.batch_size))
         dataset = dataset.prefetch(tf.data.AUTOTUNE)
         return dataset
+    
     train, dev = create_dataset("train"), create_dataset("dev")
 
     logs = model.fit(train, epochs=args.epochs, validation_data=dev, callbacks=[model.tb_callback])
