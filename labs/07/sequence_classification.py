@@ -61,16 +61,33 @@ class Model(tf.keras.Model):
         # with dimensionality `args.rnn_dim`. Use `return_sequences=True`
         # to get outputs for all sequence elements.
         #
-        # Prefer `tf.keras.layers.{LSTM,GRU,SimpleRNN}` to
-        # `tf.keras.layers.RNN` wrapper with `tf.keras.layers.{LSTM,GRU,SimpleRNN}Cell`,
-        # because the former can run transparently on a GPU and is also
-        # considerably faster on a CPU).
+        # Prefer `tf.keras.layers.LSTM` (and analogously for `GRU` and
+        # `SimpleRNN`) to `tf.keras.layers.RNN` wrapper with
+        # `tf.keras.layers.LSTMCell` (the former can run transparently on a GPU
+        # and is also considerably faster on a CPU).
+        #
+        # hidden is of (B,sequence_length,args.rnn_dim)-dim
+        # THIS FAILS `sequences = rnn_layer(.)(sequences)` dunno why
+        rnn_layer = getattr(tf.keras.layers, args.rnn)
+        hidden = rnn_layer(units=args.rnn_dim, return_sequences=True)(sequences)
 
         # TODO: If `args.hidden_layer` is nonzero, process the result using
         # a ReLU-activated fully connected layer with `args.hidden_layer` units.
+        #
+        # layer is of (rnn_dim, hidden_layer)-dims
+        # Processes `hidden`` sequentially and outputs 1 vector for each
+        # `hidden`` is of (B,sequence_length,hidden_layer)-dim
+        if args.hidden_layer:
+            hidden = tf.keras.layers.Dense(args.hidden_layer, activation=tf.nn.relu)(hidden)
 
         # TODO: Generate `predictions` using a fully connected layer
         # with one output and `tf.nn.sigmoid` activation.
+        #
+        # Layer is of (rnn_dim, 1)-dims
+        # Processes `hidden`` sequentially and outputs 1 scalar for each
+        # `predictions`` is of (B,sequence_length,1)-dim 
+        predictions = tf.keras.layers.Dense(1, activation=tf.nn.sigmoid)(hidden)
+
 
         super().__init__(inputs=sequences, outputs=predictions)
 
