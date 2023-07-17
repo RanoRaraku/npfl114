@@ -32,9 +32,9 @@ class Model(tf.keras.Model):
     """
     Tento model berie vety ako vstup, slovo po slove, a pre kazde slovo povie aky
     slovny druh to je. TZN many-to-many RNN. Slovo reprezentujem WordEmdedding +
-    CharEmbedding. 
-        Word Embedding je word -> word_idx -> dense && trainable word_embedding
-        CharEmbedding je char -> char_idx -> dense && trainable char_embedding -> biGRU -> output 
+    CharEmbedding. CharEmbedding riesi OOV !
+        Word Embedding: word -> word_idx -> dense && trainable word_embedding
+        CharEmbedding: char -> char_idx -> dense && trainable char_embedding -> biGRU -> [output_forward, output_backward] 
     """
     # A layer setting given rate of elements to zero.
     class MaskElements(tf.keras.layers.Layer):
@@ -108,7 +108,7 @@ class Model(tf.keras.Model):
         #
         # MB: Process whole character sequence and return forward && backward representation
         # from last/first RNN-cells which represents the WHOLE word, NOT each character
-        wl_chars_hidden = tf.keras.layers.Bidirectional(
+        wlchars_hidden = tf.keras.layers.Bidirectional(
             layer=tf.keras.layers.GRU(units=args.rnn_dim),
             merge_mode='concat',
         )(chars_embeddings)
