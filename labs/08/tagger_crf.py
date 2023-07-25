@@ -29,6 +29,13 @@ parser.add_argument("--we_dim", default=128, type=int, help="Word embedding dime
 
 
 class Model(tf.keras.Model):
+    """
+    Toto je BI-LSTM-CRF. CRF je nahradou za SoftMax v poslednej vrstve. SoftMax robi maximum napriec
+    dimenziou pre triedy pre dany casovy okamih 't'. Nehladi teda na zavislosti ktore existuju vo 
+    vystupnych tokenoch ale predpoklada ze su na sebe nezavisle resp. ze ich modeluje LSTM. CRF ako 
+    vystupna vrstva robi 'softmax' cez casovu dimenziu cez celu sekvenciu a vyjadruje teda pravdep.
+    celej sekvencie vzhladom na X -> p(y|X).  
+    """
     def __init__(self, args: argparse.Namespace, train: MorphoDataset.Dataset) -> None:
         # Implement a one-layer RNN network. The input `words` is
         # a `RaggedTensor` of strings, each batch example being a list of words.
@@ -112,6 +119,7 @@ class Model(tf.keras.Model):
             sequence_lengths=logits.row_lengths(),
             transition_params=self._crf_weights,
         )
+        predictions = tf.RaggedTensor.from_tensor(predictions)
 
         assert isinstance(predictions, tf.RaggedTensor)
         return predictions

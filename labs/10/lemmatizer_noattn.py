@@ -40,26 +40,33 @@ class Model(tf.keras.Model):
         # - `self._source_embedding` as an embedding layer of source ids into `args.cle_dim` dimensions
         # - `self._source_rnn` as a bidirectional GRU with `args.rnn_dim` units, returning only the last output,
         #   summing opposite directions
-        self._source_embedding = ...
-        self._source_rnn = ...
+        self._source_embedding = tf.keras.layers.Embedding(self._source_mapping.vocabulary_size(),args.cle_dim)
+        self._source_rnn = tf.keras.layers.Bidirectional(
+            layer=tf.keras.layers.GRU(args.rnn_dim),
+            merge_mode='sum',
+        )
 
         # TODO: Then define
         # - `self._target_rnn` as a `tf.keras.layers.GRU` layer with `args.rnn_dim` units
         #   and returning whole sequences
         # - `self._target_output_layer` as a Dense layer into as many outputs as there are unique target chars
-        self._target_rnn = ...
-        self._target_output_layer = ...
+        self._target_rnn = tf.keras.layers.GRU(args.rnn_dim, return_sequences=True)
+        self._target_output_layer = tf.keras.layers.Dense(self._target_mapping.vocabulary_size())
 
         if not args.tie_embeddings:
             # TODO: Define the `self._target_embedding` as an embedding layer of the target
             # ids into `args.cle_dim` dimensions.
-            self._target_embedding = ...
+            self._target_embedding = tf.keras.layers.Embedding(self._target_mapping.vocabulary_size(),args.cle_dim)
         else:
             self._target_output_layer.build(args.rnn_dim)
             # TODO: Create a function `self._target_embedding` which computes the embedding of given
             # target ids. When called, use `tf.gather` to index the transposition of the shared embedding
             # matrix `self._target_output_layer.kernel` multiplied by the square root of `args.rnn_dim`.
-            self._target_embedding = ...
+            #
+            # MB: 'tie_embeddings' = input embedding matrix equals output Dense layer (matrix)
+            # It has to function the same as `tf.keras.layers.Embedding()` layer
+            self._target_embedding = self._tied_embedding_layer
+                
 
         # Compile the model
         self.compile(
@@ -70,79 +77,52 @@ class Model(tf.keras.Model):
 
         self.tb_callback = tf.keras.callbacks.TensorBoard(args.logdir)
 
+    def _tied_embedding_layer(self, target_ids):
+        """
+        MB: target output layer matrix is of (rnn_dim,vocabulary_size)-dims. Target IDs
+        are columns of this matrix. 
+        """
+        e = tf.gather(
+            self._target_output_layer.kernel,
+            target_ids,
+            axis=1,
+        ) * tf.sqrt(args.rnn_dim)
+
+        return e
+
     def encoder(self, inputs: tf.RaggedTensor) -> tf.Tensor:
         # TODO: Embed the inputs using `self._source_embedding`.
+        e = self._source_embedding(inputs)
 
         # TODO: Run the `self._source_rnn` on the embedded sequences, and return the result.
-        return ...
+        return self._source_rnn(e)
 
     def decoder_training(self, encoded: tf.Tensor, targets: tf.RaggedTensor) -> tf.RaggedTensor:
         # TODO: Generate inputs for the decoder, which is obtained from `targets` by
         # - prepending `MorphoDataset.BOW` as the first element of every batch example,
         # - dropping the last element of `targets` (which is `MorphoDataset.EOW`)
+        inputs = tf.map_fn(self._append_eow, targets[:,:-1])
 
         # TODO: Process the generated inputs by
         # - the `self._target_embedding` layer to obtain embeddings,
         # - the `self._target_rnn` layer, passing an additional parameter `initial_state=[encoded]`,
         # - the `self._target_output_layer` to obtain logits,
         # and return the result.
-        return ...
+        e = self._target_embedding(inputs)
+        h = self._target_rnn(e, initial_state=[encoded])
+        o = self._target_output_layer(h)
 
-    @tf.function
-    def decoder_inference(self, encoded: tf.Tensor, max_length: tf.Tensor) -> tf.RaggedTensor:
-        """The decoder_inference runs a while-cycle inside a computation graph.
+        return o
 
-        To that end, it needs to be explicitly marked as @tf.function, so that the
-        below `while` cycle is "embedded" in the computation graph. Alternatively,
-        we might explicitly use the `tf.while_loop` operation, but a native while
-        cycle is more readable.
-        """
-        batch_size = tf.shape(encoded)[0]
-        max_length = tf.cast(max_length, tf.int32)
+    def _append_eow(self, tensor: tf.RaggedTensor) -> tf.RaggedTensor:
+        eow = tf.cast(MorphoDataset.EOW, dtype=tf.int64)
+        return tf.concat([tensor, [eow]], axis=0)
 
-        # TODO: Define the following variables, that we will use in the cycle:
-        # - `index`: a scalar tensor with dtype `tf.int32` initialized to 0,
-        # - `inputs`: a batch of `MorphoDataset.BOW` symbols of type `tf.int64`,
-        # - `states`: initial RNN state from the encoder, i.e., `[encoded]`,
-        index = ...
-        inputs = ...
-        states = ...
-
-        # We collect the results from the while-cycle into the following `tf.TensorArray`,
-        # which is a dynamic collection of tensors that can be written to. We also
-        # create `result_lengths` containing lengths of completely generated sequences,
-        # starting with `max_length` and optionally decreasing when an EOW is generated.
-        result = tf.TensorArray(tf.int64, size=max_length)
-        result_lengths = tf.fill([batch_size], max_length)
-
-        while tf.math.logical_and(index < max_length, tf.math.reduce_any(result_lengths == max_length)):
-            # TODO:
-            # - First embed the `inputs` using the `self._target_embedding` layer.
-            # - Then call `self._target_rnn.cell` using two arguments, the embedded `inputs`
-            #   and the current `states`. The call returns a pair of (outputs, new states),
-            #   where the new states should replace the current `states`.
-            # - Pass the outputs through the `self._target_output_layer`.
-            # - Finally generate the most probable prediction for every batch example.
-            predictions = ...
-
-            # Store the predictions in the `result` on the current `index`. Then update
-            # the `result_lengths` by setting it to current `index` if an EOW was generated
-            # for the first time.
-            result = result.write(index, predictions)
-            result_lengths = tf.where(
-                tf.math.logical_and(predictions == MorphoDataset.EOW, result_lengths > index), index, result_lengths)
-
-            # TODO: Finally,
-            # - set `inputs` to the `predictions`,
-            # - increment the `index` by one.
-            inputs = ...
-            index = ...
-
-        # Stack the `result` into a dense rectangular tensor, and create a ragged tensor
-        # from it using the `result_lengths`.
-        result = tf.RaggedTensor.from_tensor(tf.transpose(result.stack()), lengths=result_lengths)
-        return result
-
+    def _prepend_bow(self, tensor: tf.RaggedTensor) -> tf.RaggedTensor:
+        bow = tf.cast(MorphoDataset.BOW, dtype=tf.int64)
+        return tf.concat([[bow], tensor], axis=0)
+    
+    # MB: pretazena metoda `tf.keras.Model`
     def train_step(self, data):
         x, y = data
 
@@ -154,14 +134,17 @@ class Model(tf.keras.Model):
         # - `tf.strings.unicode_split` with encoding "UTF-8" to generate a ragged
         #   tensor with individual characters as strings,
         # - `self._source_mapping` to remap the character strings to ids.
-        x_flat = ...
+        x_flat = tf.strings.unicode_split(x_flat,"UTF-8")
+        x_flat = self._source_mapping(x_flat)
 
         # TODO: Process `y_flat` by
         # - `tf.strings.unicode_split` with encoding "UTF-8" to generate a ragged
         #   tensor with individual characters as strings,
         # - `self._target_mapping` to remap the character strings to ids,
         # - finally, append a `MorphoDataset.EOW` to the end of every batch example.
-        y_flat = ...
+        y_flat = tf.strings.unicode_split(y_flat,"UTF-8")
+        y_flat = self._target_mapping(y_flat)
+        y_flat = tf.map_fn(self._append_eow, y_flat)
 
         with tf.GradientTape() as tape:
             encoded = self.encoder(x_flat)
@@ -169,8 +152,73 @@ class Model(tf.keras.Model):
             loss = self.compute_loss(x, y_flat.values, y_pred.values)
         self.optimizer.minimize(loss, self.trainable_variables, tape=tape)
 
+        print(loss)
         return {"loss": metric.result() for metric in self.metrics if metric.name == "loss"}
 
+    @tf.function
+    def decoder_inference(self, encoded: tf.Tensor, max_length: tf.Tensor) -> tf.RaggedTensor:
+        """The decoder_inference runs a while-cycle inside a computation graph.
+
+        To that end, it needs to be explicitly marked as @tf.function, so that the
+        below `while` cycle is "embedded" in the computation graph. Alternatively,
+        we might explicitly use the `tf.while_loop` operation, but a native while
+        cycle is more readable.
+
+        encoded: vystup encoderu, 1 vektor pre celu sekvenciu
+        max_length: maximalna dlzka vystupu
+        """
+        batch_size = tf.shape(encoded)[0]
+        max_length = tf.cast(max_length, tf.int32)
+
+        # TODO: Define the following variables, that we will use in the cycle:
+        # - `index`: a scalar tensor with dtype `tf.int32` initialized to 0,
+        # - `inputs`: a batch of `MorphoDataset.BOW` symbols of type `tf.int64`,
+        # - `states`: initial RNN state from the encoder, i.e., `[encoded]`,
+        # MB: Process whole batch -> inputs = [BOW, BOW, ..., BOW]
+        index = tf.Variable(initial_value=0, dtype=tf.int32)
+        inputs = tf.Variable([batch_size], MorphoDataset.BOW, dtype=tf.int64)
+        states = [encoded]
+
+        # We collect the results from the while-cycle into the following `tf.TensorArray`,
+        # which is a dynamic collection of tensors that can be written to. We also
+        # create `result_lengths` containing lengths of completely generated sequences,
+        # starting with `max_length` and optionally decreasing when an EOW is generated.
+        result = tf.TensorArray(tf.int64, size=max_length)
+        result_lengths = tf.fill([batch_size], max_length)
+
+        # process whole batch
+        while tf.math.logical_and(index < max_length, tf.math.reduce_any(result_lengths == max_length)):
+            # TODO:
+            # - First embed the `inputs` using the `self._target_embedding` layer.
+            # - Then call `self._target_rnn.cell` using two arguments, the embedded `inputs`
+            #   and the current `states`. The call returns a pair of (outputs, new states),
+            #   where the new states should replace the current `states`.
+            # - Pass the outputs through the `self._target_output_layer`.
+            # - Finally generate the most probable prediction for every batch example.
+            embeddings = self._target_embedding(inputs)
+            outputs, [states] = self._target_rnn.cell(embeddings, states)
+            outputs = self._target_output_layer(outputs)
+            predictions = tf.argmax(outputs, axis=-1)
+
+            # Store the predictions in the `result` on the current `index`. Then update
+            # the `result_lengths` by setting it to current `index` if an EOW was generated
+            # for the first time.
+            result = result.write(index, predictions)
+            result_lengths = tf.where(
+                tf.math.logical_and(predictions == MorphoDataset.EOW, result_lengths > index), index, result_lengths)
+
+            # TODO: Finally,
+            # - set `inputs` to the `predictions`,
+            # - increment the `index` by one.
+            inputs = predictions
+            index += 1 
+
+        # Stack the `result` into a dense rectangular tensor, and create a ragged tensor
+        # from it using the `result_lengths`.
+        result = tf.RaggedTensor.from_tensor(tf.transpose(result.stack()), lengths=result_lengths)
+        return result
+
+    # MB: pretazena metoda `tf.keras.Model`
     def predict_step(self, data):
         if isinstance(data, tuple):
             data = data[0]
@@ -182,7 +230,8 @@ class Model(tf.keras.Model):
         # - `tf.strings.unicode_split` with encoding "UTF-8" to generate a ragged
         #   tensor with individual characters as strings,
         # - `self._source_mapping` to remap the character strings to ids.
-        data_flat = ...
+        data_flat = tf.strings.unicode_split(data_flat,"UTF-8")
+        data_flat = self._source_mapping(data_flat)
 
         encoded = self.encoder(data_flat)
         y_pred = self.decoder_inference(encoded, data_flat.bounding_shape(axis=1) + 10)
@@ -194,6 +243,7 @@ class Model(tf.keras.Model):
         y_pred = data.with_values(y_pred)
         return y_pred
 
+    # MB: pretazena metoda `tf.keras.Model`
     def test_step(self, data):
         x, y = data
         y_pred = self.predict_step(x)
@@ -232,6 +282,10 @@ def main(args: argparse.Namespace) -> Dict[str, float]:
         return dataset
     train, dev = create_dataset("train"), create_dataset("dev")
 
+    # MB: Manual iteration/train_step works
+    #for data in train:
+    #    model.train_step(data)
+
     # Callback showing intermediate results during training
     class ShowIntermediateResults(tf.keras.callbacks.Callback):
         def __init__(self, data):
@@ -242,11 +296,11 @@ def main(args: argparse.Namespace) -> Dict[str, float]:
                 print(model.optimizer.iterations.numpy(),
                       *[repr(strings[0, 0].numpy().decode("utf-8"))
                         for strings in [forms, lemmas, model.predict_on_batch(forms[:1, :1])]])
-
+    
+    # MB: Doesnt work
     logs = model.fit(train, epochs=args.epochs, validation_data=dev, verbose=2,
                      callbacks=[ShowIntermediateResults(dev), model.tb_callback])
-
-    # Return all metrics for ReCodEx to validate
+    #Return all metrics for ReCodEx to validate
     return {metric: values[-1] for metric, values in logs.history.items()}
 
 
