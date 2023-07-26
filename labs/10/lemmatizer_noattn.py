@@ -165,7 +165,7 @@ class Model(tf.keras.Model):
         cycle is more readable.
 
         encoded: vystup encoderu, 1 vektor pre celu sekvenciu
-        max_length: maximalna dlzka vystupu
+        max_length: maximalna dlzka vystupu aby som predisiel zacykleniu dekoderu
         """
         batch_size = tf.shape(encoded)[0]
         max_length = tf.cast(max_length, tf.int32)
