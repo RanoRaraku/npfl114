@@ -101,7 +101,7 @@ class Model(tf.keras.Model):
         # TODO: Generate inputs for the decoder, which is obtained from `targets` by
         # - prepending `MorphoDataset.BOW` as the first element of every batch example,
         # - dropping the last element of `targets` (which is `MorphoDataset.EOW`)
-        inputs = tf.map_fn(self._append_eow, targets[:,:-1])
+        inputs = tf.map_fn(self._prepend_bow, targets[:,:-1])
 
         # TODO: Process the generated inputs by
         # - the `self._target_embedding` layer to obtain embeddings,
