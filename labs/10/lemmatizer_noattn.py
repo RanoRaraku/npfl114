@@ -283,8 +283,8 @@ def main(args: argparse.Namespace) -> Dict[str, float]:
     train, dev = create_dataset("train"), create_dataset("dev")
 
     # MB: Manual iteration/train_step works
-    #for data in train:
-    #    model.train_step(data)
+    for data in train:
+        model.train_step(data)
 
     # Callback showing intermediate results during training
     class ShowIntermediateResults(tf.keras.callbacks.Callback):
@@ -297,11 +297,11 @@ def main(args: argparse.Namespace) -> Dict[str, float]:
                       *[repr(strings[0, 0].numpy().decode("utf-8"))
                         for strings in [forms, lemmas, model.predict_on_batch(forms[:1, :1])]])
     
-    # MB: Doesnt work
-    logs = model.fit(train, epochs=args.epochs, validation_data=dev, verbose=2,
-                     callbacks=[ShowIntermediateResults(dev), model.tb_callback])
-    #Return all metrics for ReCodEx to validate
-    return {metric: values[-1] for metric, values in logs.history.items()}
+    # # MB: Doesnt work
+    # logs = model.fit(train, epochs=args.epochs, validation_data=dev, verbose=2,
+    #                  callbacks=[ShowIntermediateResults(dev), model.tb_callback])
+    # # Return all metrics for ReCodEx to validate
+    # return {metric: values[-1] for metric, values in logs.history.items()}
 
 
 if __name__ == "__main__":
