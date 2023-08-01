@@ -32,7 +32,7 @@ class Model(tf.keras.Model):
     """
     Toto je BI-LSTM-CRF. CRF je nahradou za SoftMax v poslednej vrstve. SoftMax robi maximum napriec
     dimenziou pre triedy pre dany casovy okamih 't'. Nehladi teda na zavislosti ktore existuju vo 
-    vystupnych tokenoch ale predpoklada ze su na sebe nezavisle resp. ze ich modeluje LSTM. CRF ako 
+    vystupnych tokenoch ale predpoklada ze su na sebe nezavisle resp . ze ich modeluje LSTM. CRF ako 
     vystupna vrstva robi 'softmax' cez casovu dimenziu cez celu sekvenciu a vyjadruje teda pravdep.
     celej sekvencie vzhladom na X -> p(y|X).  
     """

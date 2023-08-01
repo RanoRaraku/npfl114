@@ -27,7 +27,7 @@ parser.add_argument("--threads", default=1, type=int, help="Maximum number of th
 # If you add more arguments, ReCodEx will keep them with your default values.
 
 
-class WithAttention(tf.keras.layers.AbstractRNNCell):
+class RnnWithAttention(tf.keras.layers.AbstractRNNCell):
     """A class adding Bahdanau attention to the given RNN cell.
     
     e_{ij} = v^{T} * tanh(V * h_{j} + W * s_{t-1} + b)
@@ -120,7 +120,7 @@ class Model(tf.keras.Model):
         #
         # MB: GRUCell nema definovany `return_sequences` pretoze Keras chce aby to user spravil sa
         self._target_rnn = tf.keras.layers.RNN(
-            WithAttention(tf.keras.layers.GRUCell(args.rnn_dim), args.rnn_dim),
+            RnnWithAttention(tf.keras.layers.GRUCell(args.rnn_dim), args.rnn_dim),
             return_sequences=True,
         )
 
@@ -204,11 +204,14 @@ class Model(tf.keras.Model):
 
         # TODO(decoder_training): Pre-compute the projected encoder states in the attention by calling
         # the `setup_memory` of the `self._target_rnn.cell` on the `encoded` input.
+        self._target_rnn.cell.setup_memory(encoded)
 
         # TODO: Define the following variables, that we will use in the cycle:
         # - `index`: a scalar tensor with dtype `tf.int32` initialized to 0,
         # - `inputs`: a batch of `MorphoDataset.BOW` symbols of type `tf.int64`,
         # - `states`: initial RNN state from the encoder, i.e., `[encoded[:, 0]]`,
+        #
+        # MB: encoded[:, 0] preto lebo mame vsetky vystupy encoderu take vezmeme ten prvy
         index = tf.Variable(initial_value=0, dtype=tf.int32)
         inputs = tf.Variable([batch_size], MorphoDataset.BOW, dtype=tf.int64)
         states = [encoded[:, 0]]

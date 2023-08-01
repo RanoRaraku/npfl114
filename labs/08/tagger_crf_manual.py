@@ -192,6 +192,17 @@ class Model(tf.keras.Model):
             tp, fp, fn = self._counts[0], self._counts[1], self._counts[2]
             return tf.math.divide_no_nan(tf.cast(2 * tp, tf.float32), tf.cast(2 * tp + fp + fn, tf.float32))
 
+class CRFCell(tf.keras.layers.AbstractRNNCell):
+    @property
+    def state_size(self):
+        ...
+        # Return state dimensionality as either a scalar number or a vector
+    def call(self, inputs, states):
+        # Given the inputs from the current timestep and states from the previous one,
+        # return an `(outputs, new_states)` pair. Note that `states` and `new_states`
+        # must always be a tuple of tensors, even if there is only a single state.
+        ...
+
 
 def main(args: argparse.Namespace) -> Dict[str, float]:
     # Set the random seed and the number of threads.
