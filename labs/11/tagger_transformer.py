@@ -77,8 +77,8 @@ class Model(tf.keras.Model):
             super().__init__(*args, **kwargs)
             self.input_dim = dim
             self.heads = heads
-            self.qk_dim = self.dim
-            self.v_dim = self.dim
+            self.qk_dim = self.input_dim
+            self.v_dim = self.input_dim
 
             # TODO: Create weight matrices W_Q, W_K, W_V, and W_O using `self.add_weight`,
             # each with shape `[dim, dim]`; keep the default for other `add_weight` arguments
@@ -138,7 +138,9 @@ class Model(tf.keras.Model):
                 tf.transpose(weights @ V, perm=[0, 2, 1, 3]),
                 [batch_size, max_sentence_len, self.v_dim],
             )
-            return att @ self.W_O
+            outputs = att @ self.W_O
+
+            return outputs
 
     class FFN(tf.keras.layers.Layer):
         def __init__(self, dim, expansion, *args, **kwargs):
@@ -153,7 +155,36 @@ class Model(tf.keras.Model):
             
         def call(self, inputs):
             # TODO: Execute the FFN Transformer layer.
-            return self.dense2(self.dense1(inputs))
+            outputs = self.dense1(inputs)
+            outputs = self.dense2(outputs)
+
+            return outputs
+
+    class SABlock(tf.keras.layers.Layer):
+        def __init__(self, dim, heads, dropout,*args, **kwargs):
+            super().__init__(*args, **kwargs)
+            self.ln = tf.keras.layers.LayerNormalization()
+            self.sa = Model.SelfAttention(dim, heads)
+            self.dropout = tf.keras.layers.Dropout(dropout)
+
+        def call(self,inputs, mask):
+            outputs = self.ln(inputs)
+            outputs = self.sa(outputs,mask)
+            outputs = self.dropout(outputs)
+            return outputs
+
+    class FFNBlock(tf.keras.layers.Layer):
+        def __init__(self, dim, expansion, dropout,*args, **kwargs):
+            super().__init__(*args, **kwargs)
+            self.ln = tf.keras.layers.LayerNormalization()
+            self.ffn = Model.FFN(dim, expansion)
+            self.dropout = tf.keras.layers.Dropout(dropout)
+
+        def call(self, inputs):
+            outputs = self.ln(inputs)
+            outputs = self.ffn(outputs)
+            outputs = self.dropout(outputs)
+            return outputs
 
     class Transformer(tf.keras.layers.Layer):
         def __init__(self, layers, dim, expansion, heads, dropout, *args, **kwargs):
@@ -165,15 +196,10 @@ class Model(tf.keras.Model):
             #   - a layer normalization and a self-attention layer followed by a dropout layer,
             #   - a layer normalization and a FFN layer followed by a dropout layer.
             self.pos_embedding = Model.PositionalEmbedding(self.dim)
-            self.my_layers = []
+            self.blocks = []
             for _ in range(self.layers):
-                self.my_layers.append((tf.keras.layers.LayerNormalization()))
-                self.my_layers.append(Model.SelfAttention(self.dim, self.heads))
-                self.my_layers.append((tf.keras.layers.Dropout(self.dropout)))
-                self.my_layers.append((tf.keras.layers.LayerNormalization()))
-                self.my_layers.append(Model.FFN(self.dim, self.expansion))
-                self.my_layers.append((tf.keras.layers.Dropout(self.dropout)))
-
+                self.blocks.append(Model.SABlock(self.dim,self.heads,self.dropout))
+                self.blocks.append(Model.FFNBlock(self.dim, self.expansion,self.dropout))
 
         def call(self, inputs, mask):
             # TODO: First compute the positional embeddings.
@@ -186,13 +212,15 @@ class Model(tf.keras.Model):
             # the corresponding operation, apply dropout, and finally add this result
             # to the original sub-layer input. Note that the given `mask` should be
             # passed to the self-attention operation to ignore the padding words.
-            pe = self.pos_embedding(inputs)
-            outputs = inputs + pe
-            for layer in self.my_layers:
-                if isinstance(layer, Model.SelfAttention):
-                    outputs = layer(outputs, mask)
+            outputs = inputs + self.pos_embedding(inputs)
+
+            for block in self.blocks:
+                if isinstance(block, Model.SABlock):
+                    rc = block(outputs, mask)
                 else:
-                    outputs = layer(outputs)
+                    rc = block(outputs)
+                outputs = outputs + rc
+
             return outputs
 
     def __init__(self, args, train):
