@@ -60,7 +60,7 @@ class VAE(tf.keras.Model):
         self.tb_callback = tf.keras.callbacks.TensorBoard(args.logdir)
 
 
-    def _kl_divergence(self, p_mean, p_std):
+    def latent_loss(self, p_mean, p_std):
         """
         Compute KL divergence of a Normal distribution N(p_mean, p_std) and N(q_mean=0, q_std=1).
         """
@@ -119,7 +119,7 @@ class VAE(tf.keras.Model):
 
             # TODO: Compute `latent_loss` as a mean of KL divergences of suitable distributions.
             # Note that the `tfp` distributions offer a method `kl_divergence`.
-            latent_loss = self._kl_divergence(z_mean, z_std)
+            latent_loss = self.latent_loss(z_mean, z_std)
 
             # TODO: Compute `loss` as a sum of the `reconstruction_loss` (multiplied by the number
             # of pixels in an image) and the `latent_loss` (multiplied by self._z_dim).
