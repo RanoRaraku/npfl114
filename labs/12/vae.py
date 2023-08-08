@@ -41,55 +41,98 @@ class VAE(tf.keras.Model):
         # TODO: Define `self.encoder` as a `tf.keras.Model`, which
         # - takes input images with shape `[MNIST.H, MNIST.W, MNIST.C]`
         # - flattens them
-        # - applies `len(args.encoder_layers)` dense layers with ReLU activation,
-        #   i-th layer with `args.encoder_layers[i]` units
-        # - generates two outputs `z_mean` and `z_sd`, each passing the result
+        # - applies `len(args.encoder_layers)` dense layers with ReLU activation
+        #   where i-th Dense layer has `args.encoder_layers[i]` units
+        # - generates two outputs `z_mean` and `z_std`, each passing the result
         #   of the above bullet through its own dense layer of `args.z_dim` units,
-        #   with `z_sd` using exponential function as activation to keep it positive.
-        self.encoder = ...
+        #   with `z_std` using exponential function as activation to keep it positive.
+        self.encoder = VAE.Encoder(args)
 
         # TODO: Define `self.decoder` as a `tf.keras.Model`, which
         # - takes vectors of `[args.z_dim]` shape on input
-        # - applies `len(args.decoder_layers)` dense layers with ReLU activation,
-        #   i-th layer with `args.decoder_layers[i]` units
+        # - applies `len(args.decoder_layers)` dense layers with ReLU activation where
+        #   i-th Dense layer has `args.decoder_layers[i]` units
         # - applies output dense layer with `MNIST.H * MNIST.W * MNIST.C` units
         #   and a suitable output activation
         # - reshapes the output (`tf.keras.layers.Reshape`) to `[MNIST.H, MNIST.W, MNIST.C]`
-        self.decoder = ...
+        self.decoder = VAE.Decoder(args)
 
         self.tb_callback = tf.keras.callbacks.TensorBoard(args.logdir)
 
+
+    def _kl_divergence(self, p_mean, p_std):
+        """
+        Compute KL divergence of a Normal distribution N(p_mean, p_std) and N(q_mean=0, q_std=1).
+        """
+        p_var = p_std ** 2
+        kld = (p_var + p_mean**2 - tf.math.log(p_var) - 1) / 2
+        return tf.reduce_mean(kld)
+
+    class Encoder(tf.keras.Model):
+        def __init__(self, args: argparse.Namespace) -> None:
+            inputs = tf.keras.layers.Input(shape=[MNIST.H, MNIST.W, MNIST.C])
+            dense = tf.keras.layers.Flatten()(inputs)
+            for units in args.encoder_layers:
+                dense = tf.keras.layers.Dense(units, activation=tf.nn.relu)(dense)
+            z_mean = tf.keras.layers.Dense(args.z_dim)(dense)
+            z_std = tf.keras.layers.Dense(args.z_dim, activation=tf.exp)(dense)
+            super().__init__(inputs=inputs, outputs=[z_mean, z_std])
+
+    class Decoder(tf.keras.Model):
+        def __init__(self, args: argparse.Namespace)  -> None:
+            inputs = tf.keras.layers.Input(shape=[args.z_dim])
+            dense = tf.keras.layers.Identity(trainable=False)(inputs)
+            for units in args.encoder_layers:
+                dense = tf.keras.layers.Dense(units, activation=tf.nn.relu)(dense)
+            dense = tf.keras.layers.Dense(MNIST.H * MNIST.W * MNIST.C, activation=tf.sigmoid)(dense)
+            outputs = tf.keras.layers.Reshape([MNIST.H, MNIST.W, MNIST.C])(dense)
+            super().__init__(inputs=inputs, outputs=outputs)
+
+
     def train_step(self, images: tf.Tensor) -> Dict[str, tf.Tensor]:
         with tf.GradientTape() as tape:
-            # TODO: Compute `z_mean` and `z_sd` of the given images using `self.encoder`.
+            # TODO: Compute `z_mean` and `z_std` of the given images using `self.encoder`.
             # Note that you should pass `training=True` to the `self.encoder`.
+            z_mean, z_std = self.encoder(images, training=True)
 
             # TODO: Sample `z` from a Normal distribution with mean `z_mean` and
-            # standard deviation `z_sd`. Start by creating corresponding
+            # standard deviation `z_std`. Start by creating corresponding
             # distribution `tfp.distributions.Normal(...)` and then run the
             # `sample(seed=self._seed)` method.
             #
             # Note that the distributions in `tfp` are already reparametrized if possible,
             # so you do not need to implement the reparametrization trick manually.
             # For a given distribution, you can use the `reparameterization_type` member
-            # to check if it is reparametrized or not.
+            # to check if it is reparametrized or not
+            #
+            # MB: Cannot use tfp.distributions.Normal(z_mean, z_std) because these are [50,3]
+            # Rather, I need to sample args.batch_size-times Normal(tf.zeros(args.z_dim), tf.ones(args.z_dim))
+            # and do reparam trick
+            z = self._z_prior.sample(sample_shape=tf.shape(images)[0], seed=self._seed)
+            z = z * z_std + z_mean 
 
             # TODO: Decode images using `z` (also passing `training=True` to the `self.decoder`).
+            pred_images = self.decoder(z, training=True)
 
             # TODO: Compute `reconstruction_loss` using the `self.compiled_loss`.
-            reconstruction_loss = ...
+            reconstruction_loss = self.compiled_loss(images, pred_images)
 
             # TODO: Compute `latent_loss` as a mean of KL divergences of suitable distributions.
             # Note that the `tfp` distributions offer a method `kl_divergence`.
-            latent_loss = ...
+            latent_loss = self._kl_divergence(z_mean, z_std)
 
             # TODO: Compute `loss` as a sum of the `reconstruction_loss` (multiplied by the number
             # of pixels in an image) and the `latent_loss` (multiplied by self._z_dim).
-            loss = ...
+            loss = reconstruction_loss * MNIST.H * MNIST.W + latent_loss * self._z_dim
 
         # TODO: Perform a single optimizer step, with respect to trainable variables
         # of both the encoder and the decoder.
+        # Compute gradients
+        gradients = tape.gradient(loss, self.trainable_variables)
 
+        # Apply gradients using the optimizer
+        self.optimizer.apply_gradients(zip(gradients, self.trainable_variables))
+        
         return {"reconstruction_loss": reconstruction_loss, "latent_loss": latent_loss, "loss": loss}
 
     def generate(self, epoch: int, logs: Dict[str, tf.Tensor]) -> None:
@@ -147,6 +190,9 @@ def main(args: argparse.Namespace) -> float:
     # Create the network and train
     network = VAE(args)
     network.compile(optimizer=tf.optimizers.Adam(jit_compile=False), loss=tf.losses.BinaryCrossentropy())
+    #for batch in train: 
+    #    network.train_step(batch)
+
     logs = network.fit(train, epochs=args.epochs, callbacks=[
         tf.keras.callbacks.LambdaCallback(on_epoch_end=network.generate), network.tb_callback])
 
