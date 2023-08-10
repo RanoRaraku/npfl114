@@ -120,14 +120,19 @@ class GAN(tf.keras.Model):
         # Then, run an optimizer step with respect to discriminator trainable variables.
         # Do not forget that we created discriminator_optimizer in the `compile` override.
         #
-        # MB: why run `self.discriminator(samples, training=True)` for G(z) and D(x) separately ?
-        # Pretoze som generoval z, samples, samples_pred, generator_loss MIMO sucastnu GradientTape !!!
-        with tf.GradientTape() as tape:
-            discriminated_real = self.discriminator(images, training=True)
-            discriminated_fake = self.discriminator(samples, training=True)
-            discriminator_loss = self.compiled_loss(tf.ones_like(discriminated_real), discriminated_real) + self.compiled_loss(tf.zeros_like(discriminated_fake), discriminated_fake)
-        discriminator_gradients = tape.gradient(discriminator_loss, self.discriminator.trainable_variables)
-        self.discriminator_optimizer.apply_gradients(zip(discriminator_gradients, self.discriminator.trainable_variables))
+        # MB: why run `self.discriminator(samples, training=True)` for G & D updates separately ?
+        # I dont need to run `self.discriminator(samples,...)` but I CANNOT reuse `generator_loss`
+        # During G training, we want G to fool D so we treat latent samples as True, but during D training
+        # we treat latent samples as False :
+        # >>> generator_loss_G_update = self.compiled_loss(tf.ones_like(samples_pred), samples_pred)
+        # >>> generator_loss_D_update = self.compiled_loss(tf.zeros_like(samples_pred), samples_pred)
+        for _ in range(2):
+            with tf.GradientTape() as tape:
+                discriminated_real = self.discriminator(images, training=True)
+                discriminated_fake = self.discriminator(samples, training=True)
+                discriminator_loss = self.compiled_loss(tf.ones_like(discriminated_real), discriminated_real) + self.compiled_loss(tf.zeros_like(discriminated_fake), discriminated_fake)
+            discriminator_gradients = tape.gradient(discriminator_loss, self.discriminator.trainable_variables)
+            self.discriminator_optimizer.apply_gradients(zip(discriminator_gradients, self.discriminator.trainable_variables))
 
 
 
