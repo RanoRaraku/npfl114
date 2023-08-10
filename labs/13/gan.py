@@ -121,12 +121,15 @@ class GAN(tf.keras.Model):
         # Do not forget that we created discriminator_optimizer in the `compile` override.
         #
         # MB: why run `self.discriminator(samples, training=True)` for G(z) and D(x) separately ?
+        # Pretoze som generoval z, samples, samples_pred, generator_loss MIMO sucastnu GradientTape !!!
         with tf.GradientTape() as tape:
             discriminated_real = self.discriminator(images, training=True)
             discriminated_fake = self.discriminator(samples, training=True)
             discriminator_loss = self.compiled_loss(tf.ones_like(discriminated_real), discriminated_real) + self.compiled_loss(tf.zeros_like(discriminated_fake), discriminated_fake)
         discriminator_gradients = tape.gradient(discriminator_loss, self.discriminator.trainable_variables)
         self.discriminator_optimizer.apply_gradients(zip(discriminator_gradients, self.discriminator.trainable_variables))
+
+
 
         # TODO: Update the discriminator accuracy metric -- call the
         # `self.compiled_metrics.update_state` twice, with the same arguments
