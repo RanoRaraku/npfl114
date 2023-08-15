@@ -101,51 +101,69 @@ class Model(tf.keras.Model):
             # - `self._controller` is a `tf.keras.layers.LSTMCell` with `units` units;
             # - `self._parameters` is a `tanh`-activated dense layer with `(read_heads + 1) * cell_size` units;
             # - `self._output_layer` is a `tanh`-activated dense layer with `units` units.
-            self._controller = ...
-            self._parameters = ...
-            self._output_layer = ...
+            self._controller = tf.keras.layers.LSTMCell(units)
+            self._parameters = tf.keras.layers.Dense((read_heads + 1) * cell_size, activation='tanh')
+            self._output_layer = tf.keras.layers.Dense(units, activation='tanh')
 
         @property
         def state_size(self) -> Tuple[Union[int, tf.TensorShape]]:
             # TODO: Return the description of the state size as a (possibly nested)
             # tuple (or a list) containing shapes of individual state tensors. The state
             # of the `MemoryAugmentedLSTMCell` consists of the following components:
+            state_sizes = []
             # - first the state tensors of the `self._controller` itself; note that
             #   the `self._controller` also has `state_size` property;
+            state_sizes.append(self._controller.state_size)
             # - then the values of memory cells read by the `self._read_heads` heads
             #   in the previous time step;
+            state_sizes.append(tf.TensorShape(self._read_heads * self._cell_size))
             # - finally the external memory itself, which is a matrix containing
             #   `self._memory_cells` cells as rows, each of length `self._cell_size`.
+            state_sizes.append(tf.TensorShape([self._memory_cells, self._cell_size]))
             # A tensor shape is specified without the batch size, either as:
             # - an integer, in which case the state tensor for a single example
             #   is a vector of the given size; or
             # - a `tf.TensorShape`, which allows declaring tensors of different
             #   dimensionality than just vectors.
-            raise NotImplementedError()
+            return state_sizes
+            
 
         def call(self, inputs: tf.Tensor, states: Tuple[tf.Tensor]) -> Tuple[tf.Tensor, Tuple[tf.Tensor]]:
+
+
+            batch_size = tf.shape(inputs)[0]
             # TODO: Decompose `states` into `controller_state`, `read_value` and `memory`
             # (see `state_size` describing the `states` structure).
-            controller_state, read_value, memory = ...
+            controller_state, read_value, memory = states
 
             # TODO: Call the LSTM controller, using a concatenation of `inputs` and
             # `read_value` (in this order) as input and `controller_state` as state.
             # Store the results in `controller_output` and `controller_state`.
-            controller_output, controller_state = ...
+            input = tf.concat([inputs, read_value], axis=1)
+            controller_output, controller_state = self._controller(input, states)
 
             # TODO: Pass the `controller_output` through the `self._parameters` layer, obtaining
             # the parameters for interacting with the external memory (in this order):
             # - `write_value` is the first `self._cell_size` elements of every batch example;
             # - `read_keys` is the rest of the elements of every batch example, reshaped to
             #   `[batch_size, self._read_heads, self._cell_size]`.
-            write_value = ...
-            read_keys = ...
+            parameters = self._parameters(controller_output)
+            write_value = parameters[:, : self._cell_size]
+            read_keys = tf.reshape(parameters[:, self._cell_size :], [batch_size, self._read_heads, self._cell_size])
 
             # TODO: Read the memory. For every predicted read key, the goal is to
             # - compute cosine similarities between the key and all memory cells;
+            norm_memory = tf.math.l2_normalize(memory)
+            norm_keys = tf.math.l2_normalize(read_keys)
+            cosine_distances = tf.linalg.matmul(norm_keys, norm_memory, transpose_b=True)
+
             # - compute cell distribution as a softmax of the computed cosine similarities;
+            read_dists = tf.nn.softmax(cosine_distances, axis=2)
+            read_dists = tf.transpose(read_dists, perm=[0, 2, 1])
             # - the read value is the sum of the memory cells weighted by the above distribution.
-            #
+            read_result = tf.reduce_sum(read_dists * memory, axis=1)
+
+
             # However, implement the reading process in a vectorized way (for all read keys in parallel):
             # - compute L2 normalized copy of `memory` and `read_keys`, using `tf.math.l2_normalize`,
             #   so that every cell vector has norm 1;
@@ -159,19 +177,21 @@ class Model(tf.keras.Model):
             #   obtained distribution. Compute it using a single matrix multiplication, producing
             #   a value with shape `[batch_size, self._read_heads, self._cell_size]`.
             # Finally, reshape the result into `read_value` of shape `[batch_size, self._read_heads * self._cell_size]`
-            read_value = ...
+            read_value = tf.reshape(read_result, [batch_size, self._read_heads * self._cell_size])
 
             # TODO: Write to the memory by prepending the `write_value` as the first cell (row);
             # the last memory cell (row) is dropped.
-            memory = ...
+            memory = tf.concat([tf.expand_dims(write_value, axis=1), memory[:, :-1]], axis=1)
 
             # TODO: Generate `output` by concatenating `controller_output` and `read_value`
             # (in this order) and passing it through the `self._output_layer`.
-            output = ...
+            val = tf.concat([controller_output, read_value], axis=1)
+            output = self._output_layer(val)
+
 
             # TODO: Return the `output` as output and a suitable combination of
             # `controller_state`, `read_value` and `memory` as state.
-            raise NotImplementedError()
+            return output, [controller_state, read_value, memory]
 
     def __init__(self, args: argparse.Namespace) -> None:
         # Construct the model. The inputs are:
@@ -180,29 +200,42 @@ class Model(tf.keras.Model):
         images = tf.keras.layers.Input([None, Omniglot.H, Omniglot.W, Omniglot.C], dtype=tf.float32)
         previous_labels = tf.keras.layers.Input([None], dtype=tf.int32)
 
+        batch_size = tf.shape(images)[0]
+        target_shape = [-1] + list(images.shape)[2:]
+        x = tf.reshape(images, target_shape)
         # TODO: Process each image with the same sequence of the following operations:
         # - apply the `tf.keras.layers.Rescaling(1/255.)` layer to scale the images to [0, 1] range;
         # - convolutional layer with 8 filters, 3x3 kernel, stride 2, valid padding; BatchNorm; ReLU;
         # - convolutional layer with 16 filters, 3x3 kernel, stride 2, valid padding; BatchNorm; ReLU;
         # - convolutional layer with 32 filters, 3x3 kernel, stride 2, valid padding; BatchNorm; ReLU;
+        for alpha in [8, 16, 32]:
+            x = tf.keras.layers.Conv2D(alpha, kernel_size=3, strides=(2, 2), padding="valid", activation="relu", use_bias=False)(x)
+            x = tf.keras.layers.BatchNormalization()(x)
         # - finally, flatten each image into a vector.
+        flat_size = x.shape[1] * x.shape[2] * x.shape[3]
+        x = tf.keras.layers.Flatten()(x)
+        x = tf.reshape(x, [batch_size, -1, flat_size])
         # Do not forget about `use_bias=False` in every convolution before batch normalization.
         # The batch normalization should be computed across all the images.
 
         # TODO: To create the input for the `MemoryAugmentedLSTMCell`, concatenate (in this order)
         # each computed image representation with the one-hot representation (with `args.classes` classes)
         # of the label of the previous image from `previous_labels`.
+        one_hot = tf.one_hot(previous_labels, args.classes)
+        input = tf.concat([x, one_hot], axis=2)
 
         # TODO: Create the `MemoryAugmentedLSTMCell` cell, using
         # - `args.lstm_dim` units;
         # - `args.classes * args.images_per_class` memory cells of size `args.cell_size`;
         # - `args.read_heads` read heads.
+        cell = self.MemoryAugmentedLSTMCell(args.lstm_dim, args.classes * args.images_per_class, args.cell_size, args.read_heads)
         # Then, run this cell using `tf.keras.layers.RNN` on the prepared input,
         # obtaining output for every input sequence element.
+        output = tf.keras.layers.RNN(cell, return_sequences=True)(input)
 
         # TODO: Pass the sequence of outputs through a classification dense layer
         # with `args.classes` units and `tf.nn.softmax` activation.
-        predictions = ...
+        predictions = tf.keras.layers.Dense(args.classes, activation="softmax")(output)
 
         # Create the model and compile it.
         super().__init__(inputs=[images, previous_labels], outputs=predictions)
