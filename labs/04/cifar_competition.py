@@ -15,12 +15,100 @@ from cifar10_torch import CIFAR10
 # TODO: Define reasonable defaults and optionally more parameters.
 # Also, you can set the number of threads to 0 to use all your CPU cores.
 parser = argparse.ArgumentParser()
-parser.add_argument("--batch_size", default=32, type=int, help="Batch size.")
+parser.add_argument("--batch_size", default=128, type=int, help="Batch size.")
 parser.add_argument("--debug", default=False, action="store_true", help="If given, run functions eagerly.")
 parser.add_argument("--epochs", default=1, type=int, help="Number of epochs.")
 parser.add_argument("--seed", default=42, type=int, help="Random seed.")
 parser.add_argument("--threads", default=1, type=int, help="Maximum number of threads to use.")
 
+
+class WideNet(nn.Module):
+
+    class WideBlock(nn.Module):
+        def __init__(self, in_channels, out_channels):
+            super().__init__()
+            self.bn1 = nn.BatchNorm2d(in_channels)
+            self.relu = nn.ReLU()
+            self.conv1 = nn.Conv2d(in_channels, out_channels, 3, padding="same")
+            self.bn2 = nn.BatchNorm2d(out_channels)
+            self.dropout = nn.Dropout2d(0.1)
+            self.conv2 = nn.Conv2d(out_channels, in_channels,3,padding="same")
+
+        def forward(self, inputs):
+            rc = self.bn1(inputs)
+            rc = self.relu(rc)
+            rc = self.conv1(rc)
+            rc = self.bn2(rc)
+            rc = self.relu(rc)
+            rc = self.dropout(rc)
+            rc = self.conv2(rc)
+            outputs = inputs + rc
+            return outputs
+
+    def __init__(self):
+        super(WideNet, self).__init__()
+        self.epoch = 0
+
+        self.conv1 = nn.Conv2d(3, 16, (3,3), padding="same")
+        self.res1 = self.WideBlock(16,32)
+        self.res2 = self.WideBlock(16,32)
+        self.res3 = self.WideBlock(16,32)
+        self.downsize1 = nn.Conv2d(16, 32, 3, 2, 1)
+        self.res4 = self.WideBlock(32,64)
+        self.res5 = self.WideBlock(32,64)
+        self.res6 = self.WideBlock(32,64)
+        self.downsize2 = nn.Conv2d(32, 64, 3, 2, 1)
+        self.res7 = self.WideBlock(64,128)
+        self.res8 = self.WideBlock(64,128)
+        self.res9 = self.WideBlock(64,128)
+        self.avgpool = nn.AvgPool2d(8)
+        self.flatten = nn.Flatten()        
+        self.out = nn.Linear(64, 10)
+
+    def forward(self, inputs):
+        
+        x = self.conv1(inputs)
+        x = self.res1(x)
+        x = self.res2(x)
+        x = self.res3(x)
+        x = self.downsize1(x)
+        x = self.res4(x)
+        x = self.res5(x)
+        x = self.res6(x)
+        x = self.downsize2(x)
+        x = self.res7(x)
+        x = self.res8(x)
+        x = self.res9(x)
+        x = self.avgpool(x)
+        x = self.flatten(x)
+        x = self.out(x)
+
+        return x
+
+    def eval_accuracy(self, dloader):
+
+        self.eval()
+        total_corr = 0
+        num_iters = len(dloader)
+        for samples, labels in dloader:
+            y_hat = self(samples)
+            y_pred = torch.argmax(y_hat, dim=-1)
+            total_corr += torch.sum(y_pred == torch.argmax(labels, dim=-1))
+        print(f"dev_accuracy={total_corr/(num_iters * 128) * 100:.2f} %")
+
+    def train_epoch(self, train_dloader, loss_fn, optim):
+        self.train()
+        for samples, labels in train_dloader:
+
+            # Run inference
+            y_hat = self(samples)
+            loss = loss_fn(y_hat, labels)
+
+            # Update params
+            optim.zero_grad()
+            loss.backward()
+            optim.step()
+            self.epoch += 1
 
 class VGG(nn.Module):
     def __init__(self):
@@ -88,12 +176,11 @@ class VGG(nn.Module):
             y_hat = self(samples)
             y_pred = torch.argmax(y_hat, dim=-1)
             total_corr +=  torch.sum(y_pred == torch.argmax(labels, dim=-1))
-        print(f"dev_accuracy={total_corr/(num_iters * 32) * 100:.2f} %")
+        print(f"dev_accuracy={total_corr/(num_iters * samples.shape[0]) * 100:.2f} %")
 
     def train_epoch(self, train_dloader, loss_fn, optim):
-        
         self.train()
-        for idx, (samples, labels) in enumerate(train_dloader):
+        for samples, labels in train_dloader:
 
             # Run inference
             y_hat = self(samples)
@@ -135,7 +222,7 @@ def main(args: argparse.Namespace) -> None:
     test_dloader = DataLoader(cifar.test, args.batch_size, shuffle=False)
 
     # TODO: Create the model and train it
-    model = VGG()
+    model = WideNet()
     optim = torch.optim.AdamW(model.parameters())
     loss_fn = nn.CrossEntropyLoss()
     scheduler = CosineLRWithWarmup(optim, 2, args.epochs)
