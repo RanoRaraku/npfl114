@@ -6,7 +6,7 @@ import numpy as np
 from torch.utils.data import Dataset
 import torch
 import torch.nn.functional as F
-import torchvision
+from torchvision import transforms
 
 class CIFAR10:
     H: int = 32
@@ -51,8 +51,8 @@ class CIFAR10:
             self.std = std
 
             self.transforms = [
-                torchvision.transforms.RandomHorizontalFlip(p=1),
-                torchvision.transforms.RandomVerticalFlip(p=1),
+                transforms.RandomHorizontalFlip(p=1),
+                transforms.RandomVerticalFlip(p=1),
             ]
             for transform in self.transforms:
                 samples = torch.cat((samples,transform(samples)), axis=0)
