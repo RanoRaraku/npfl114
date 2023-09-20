@@ -95,14 +95,9 @@ class CustomDataset(Dataset):
 
     def __getitem__(self, index:int) -> Tuple[Tensor, Tensor]:
         words = tensor([self.forms.word_mapping[word] for word in self.forms.strings[index]]).to(torch.long)
-        chars = tensor([self.forms.char_mapping[char] for word in self.forms.strings[index] for char in word]).to(torch.long)
-        chars_lens = tensor(list(map(len, chars)))
-
         tags = tensor([self.tags.word_mapping[tag] for tag in self.tags.strings[index]])
         tags = one_hot(tags, self.unique_tags).to(torch.float)
-
-        return words, chars, chars_lens, tags
-
+        return words, tags
 
     def __len__(self) -> int:
         return self._size
@@ -125,15 +120,12 @@ class CustomDataset(Dataset):
 
     @staticmethod
     def collate(samples):
-        words, chars, chars_lens, tags = zip(*samples)
+        words, tags = zip(*samples)
         seq_lens = tensor(list(map(len, words)))
-        seq_lens, perm_idx = seq_lens.sort(0, descending=True)
         return {
-            "words": pad_sequence(words[perm_idx], batch_first=True),
-            "chars": pad_sequence(chars[perm_idx], batch_first=True),
-            "tags": pad_sequence(tags[perm_idx], batch_first=True),
+            "words": pad_sequence(words, batch_first=True),
+            "tags": pad_sequence(tags, batch_first=True),
             "sequence_lens": seq_lens,
-            "chars_lens": chars_lens[perm_idx],
         }
 
     def to_dloader(self, batch_size:int=128, shuffle:bool=True, **kwargs) -> DataLoader:
