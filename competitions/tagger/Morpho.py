@@ -1,6 +1,6 @@
 import os
 import sys
-from typing import BinaryIO, Optional, Dict, Tuple
+from typing import BinaryIO, Optional, Dict, Tuple, Any
 import zipfile
 
 import torch
@@ -35,7 +35,7 @@ class Factor:
     def __init__(self) -> None:
         self.strings = []
 
-    def finalize(self, dev: Optional[Factor] = None, add_bow_eow: bool = False) -> None:
+    def finalize(self, dev: Optional[Any] = None, add_bow_eow: bool = False) -> None:
 
         word_vocab = [string for sentence in self.strings for string in sentence]
 
@@ -57,7 +57,7 @@ class CustomDataset(Dataset):
     def __init__(
         self,
         data_file: BinaryIO,
-        dev: Optional[CustomDataset] = None,
+        dev: Optional[Any] = None,
         max_sentences: Optional[int] = None,
         add_bow_eow: bool = False
     ):
@@ -94,8 +94,6 @@ class CustomDataset(Dataset):
 
 
     def __getitem__(self, index:int) -> Tuple[Tensor, Tensor]:
-
-
         words = tensor([self.forms.word_mapping[word] for word in self.forms.strings[index]]).to(torch.long)
         chars = tensor([self.forms.char_mapping[char] for word in self.forms.strings[index] for char in word]).to(torch.long)
         chars_lens = tensor(list(map(len, chars)))
@@ -129,12 +127,13 @@ class CustomDataset(Dataset):
     def collate(samples):
         words, chars, chars_lens, tags = zip(*samples)
         seq_lens = tensor(list(map(len, words)))
+        seq_lens, perm_idx = seq_lens.sort(0, descending=True)
         return {
-            "words": pad_sequence(words, batch_first=True),
-            "chars": pad_sequence(chars, batch_first=True),
-            "tags": pad_sequence(tags, batch_first=True),
+            "words": pad_sequence(words[perm_idx], batch_first=True),
+            "chars": pad_sequence(chars[perm_idx], batch_first=True),
+            "tags": pad_sequence(tags[perm_idx], batch_first=True),
             "sequence_lens": seq_lens,
-            "chars_lens": chars_lens,
+            "chars_lens": chars_lens[perm_idx],
         }
 
     def to_dloader(self, batch_size:int=128, shuffle:bool=True, **kwargs) -> DataLoader:
@@ -147,7 +146,6 @@ class CustomDataset(Dataset):
         )
     
 
-
 class MorphoDataset:
     BOW: int = 1
     EOW: int = 2
@@ -157,7 +155,7 @@ class MorphoDataset:
         path = "{}.zip".format(dataset)
         if not os.path.exists(path):
             print("Missing dataset {}...".format(dataset), file=sys.stderr)
-            return
+            exit
 
         with zipfile.ZipFile(path, "r") as zip_file:
             for dataset in ["dev", "train"]:

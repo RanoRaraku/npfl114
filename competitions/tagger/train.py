@@ -1,17 +1,13 @@
 import wandb
-from Morpho import MorphoDataset
-from model import SimpleRNN
 import datetime
+
 import torch
 import torch.nn as nn
 
-# # Run on Google Collba
-# !pip install wandb -qU
-# wandb.login()
+from Morpho import MorphoDataset
+from model import SimpleRNN
 
-# # Mount data from Google Drive
-# drive.mount('/content/drive', force_remount=True)
-# %cd drive/MyDrive/Colab\ Notebooks
+wandb.login()
 
 morpho = MorphoDataset("czech_pdt")
 
@@ -42,3 +38,4 @@ wandb.init(project="tagger_competition", name=run_name, config=simple_rnn_args)
 for _ in range(simple_rnn_args["epochs"]):
     model.train_epoch(train_dloader, dev_dloader, loss_fn, optim, wandb)
 wandb.finish()
+
