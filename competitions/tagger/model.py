@@ -27,7 +27,7 @@ class SimpleRNN(nn.Module):
 
     def forward(self, input, seq_lens):
         x = self.word_embedd(input)
-        x = pack_padded_sequence(x, seq_lens, batch_first=True, enforce_sorted=False)
+        x = pack_padded_sequence(x, seq_lens.to("cpu"), batch_first=True, enforce_sorted=False)
         x, _ = self.word_lstm(x)
         x, _ = pad_packed_sequence(x, batch_first=True)
         x = self.linear(x)
@@ -62,7 +62,7 @@ class SimpleRNN(nn.Module):
         start_time = time.time()
         self.train()
         for batch in train_dloader:
-            seq_lens = batch["sequence_lens"]
+            seq_lens = batch["sequence_lens"].to(self.device)
             words = batch["words"].to(self.device)
             tags = batch["tags"].to(self.device)
             max_seq_len = torch.max(seq_lens)
