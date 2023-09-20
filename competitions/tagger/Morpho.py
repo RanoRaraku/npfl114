@@ -125,7 +125,7 @@ class CustomDataset(Dataset):
         return {
             "words": pad_sequence(words, batch_first=True),
             "tags": pad_sequence(tags, batch_first=True),
-            "sequence_lens": seq_lens,
+            "sequence_lens": seq_lens.to(torch.int64),
         }
 
     def to_dloader(self, batch_size:int=128, shuffle:bool=True, **kwargs) -> DataLoader:
@@ -159,6 +159,7 @@ class MorphoDataset:
                         dataset_file, dev=self.dev if dataset == "train" else None,
                         max_sentences=max_sentences, add_bow_eow=add_bow_eow)
                     )
+        
         # hack to share mappings
         self.dev.forms.word_mapping = self.train.forms.word_mapping
         self.dev.forms.char_mapping = self.train.forms.char_mapping

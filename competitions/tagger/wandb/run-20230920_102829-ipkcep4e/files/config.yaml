@@ -1,0 +1,65 @@
+wandb_version: 1
+
+batch_size:
+  desc: null
+  value: 128
+epochs:
+  desc: null
+  value: 20
+device:
+  desc: null
+  value: cpu
+dataset:
+  desc: null
+  value: czech_pdt
+model:
+  desc: null
+  value: SimpleRNN
+we_dim:
+  desc: null
+  value: 64
+hidden_size:
+  desc: null
+  value: 128
+num_layers:
+  desc: null
+  value: 1
+dropout:
+  desc: null
+  value: 0.1
+word_vocab_size:
+  desc: null
+  value: 157840
+num_classes:
+  desc: null
+  value: 1625
+label_smoothing:
+  desc: null
+  value: 0.1
+packed_sequences:
+  desc: null
+  value: true
+_wandb:
+  desc: null
+  value:
+    python_version: 3.11.4
+    cli_version: 0.15.10
+    framework: torch
+    is_jupyter_run: false
+    is_kaggle_kernel: false
+    start_time: 1695205709.351064
+    t:
+      1:
+      - 1
+      - 55
+      2:
+      - 1
+      - 55
+      3:
+      - 13
+      - 16
+      - 23
+      4: 3.11.4
+      5: 0.15.10
+      8:
+      - 5

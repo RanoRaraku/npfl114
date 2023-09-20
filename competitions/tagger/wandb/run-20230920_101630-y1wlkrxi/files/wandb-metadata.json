@@ -1,0 +1,120 @@
+{
+    "os": "Linux-5.15.90.1-microsoft-standard-WSL2-x86_64-with-glibc2.35",
+    "python": "3.11.4",
+    "heartbeatAt": "2023-09-20T10:16:31.687172",
+    "startedAt": "2023-09-20T10:16:30.641836",
+    "docker": null,
+    "cuda": null,
+    "args": [],
+    "state": "running",
+    "program": "/mnt/wdc/Projects/npfl114/competitions/tagger/train.py",
+    "codePathLocal": "train.py",
+    "codePath": "competitions/tagger/train.py",
+    "git": {
+        "remote": "https://github.com/RanoRaraku/npfl114.git",
+        "commit": "02a2b23efcf652fb6458e52d3f5d52a35dfdb914"
+    },
+    "email": "michal.borsky@protonmail.com",
+    "root": "/mnt/wdc/Projects/npfl114",
+    "host": "thinkpad",
+    "username": "borsky",
+    "executable": "/home/borsky/mambaforge/envs/env-npfl114/bin/python",
+    "cpu_count": 8,
+    "cpu_count_logical": 16,
+    "cpu_freq": {
+        "current": 1896.3610000000006,
+        "min": 0.0,
+        "max": 0.0
+    },
+    "cpu_freq_per_core": [
+        {
+            "current": 1896.361,
+            "min": 0.0,
+            "max": 0.0
+        },
+        {
+            "current": 1896.361,
+            "min": 0.0,
+            "max": 0.0
+        },
+        {
+            "current": 1896.361,
+            "min": 0.0,
+            "max": 0.0
+        },
+        {
+            "current": 1896.361,
+            "min": 0.0,
+            "max": 0.0
+        },
+        {
+            "current": 1896.361,
+            "min": 0.0,
+            "max": 0.0
+        },
+        {
+            "current": 1896.361,
+            "min": 0.0,
+            "max": 0.0
+        },
+        {
+            "current": 1896.361,
+            "min": 0.0,
+            "max": 0.0
+        },
+        {
+            "current": 1896.361,
+            "min": 0.0,
+            "max": 0.0
+        },
+        {
+            "current": 1896.361,
+            "min": 0.0,
+            "max": 0.0
+        },
+        {
+            "current": 1896.361,
+            "min": 0.0,
+            "max": 0.0
+        },
+        {
+            "current": 1896.361,
+            "min": 0.0,
+            "max": 0.0
+        },
+        {
+            "current": 1896.361,
+            "min": 0.0,
+            "max": 0.0
+        },
+        {
+            "current": 1896.361,
+            "min": 0.0,
+            "max": 0.0
+        },
+        {
+            "current": 1896.361,
+            "min": 0.0,
+            "max": 0.0
+        },
+        {
+            "current": 1896.361,
+            "min": 0.0,
+            "max": 0.0
+        },
+        {
+            "current": 1896.361,
+            "min": 0.0,
+            "max": 0.0
+        }
+    ],
+    "disk": {
+        "/": {
+            "total": 1006.853931427002,
+            "used": 264.7986488342285
+        }
+    },
+    "memory": {
+        "total": 15.041282653808594
+    }
+}

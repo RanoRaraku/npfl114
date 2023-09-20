@@ -62,7 +62,7 @@ class SimpleRNN(nn.Module):
         start_time = time.time()
         self.train()
         for batch in train_dloader:
-            seq_lens = batch["sequence_lens"].to(self.device)
+            seq_lens = batch["sequence_lens"]
             words = batch["words"].to(self.device)
             tags = batch["tags"].to(self.device)
             max_seq_len = torch.max(seq_lens)

@@ -1,0 +1,11 @@
+Traceback (most recent call last):
+  File "/mnt/wdc/Projects/npfl114/competitions/tagger/train.py", line 39, in <module>
+    wandb.finish()
+        ^^^^^^^^^^^
+  File "/mnt/wdc/Projects/npfl114/competitions/tagger/model.py", line 77, in train_epoch
+    loss.backward()
+  File "/home/borsky/mambaforge/envs/env-npfl114/lib/python3.11/site-packages/torch/_tensor.py", line 487, in backward
+    torch.autograd.backward(
+  File "/home/borsky/mambaforge/envs/env-npfl114/lib/python3.11/site-packages/torch/autograd/__init__.py", line 200, in backward
+    Variable._execution_engine.run_backward(  # Calls into the C++ engine to run the backward pass
+KeyboardInterrupt
