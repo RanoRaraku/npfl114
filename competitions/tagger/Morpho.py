@@ -160,7 +160,7 @@ class MorphoDataset:
         with zipfile.ZipFile(path, "r") as zip_file:
             for dataset in ["dev", "train"]:
                 with zip_file.open("{}_{}.txt".format(os.path.splitext(path)[0], dataset), "r") as dataset_file:
-                    setattr(self, dataset, self.CustomDataset(
+                    setattr(self, dataset, CustomDataset(
                         dataset_file, dev=self.dev if dataset == "train" else None,
                         max_sentences=max_sentences, add_bow_eow=add_bow_eow)
                     )
