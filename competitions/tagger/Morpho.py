@@ -151,6 +151,9 @@ class MorphoDataset:
     EOW: int = 2
     _URL: str = "https://ufal.mff.cuni.cz/~straka/courses/npfl114/2223/datasets/"
 
+    train: CustomDataset
+    dev: CustomDataset
+
     def __init__(self, dataset, max_sentences=None, add_bow_eow=False):
         path = "{}.zip".format(dataset)
         if not os.path.exists(path):
@@ -171,7 +174,3 @@ class MorphoDataset:
         self.dev.tags.char_mapping = self.train.tags.char_mapping
         self.dev.unique_forms = self.train.unique_forms
         self.dev.unique_tags = self.train.unique_tags
-
-    train: CustomDataset
-    dev: CustomDataset
-
