@@ -13,7 +13,7 @@ morpho = MorphoDataset("czech_pdt")
 simple_rnn_args = {
     "batch_size":128,
     "epochs":20,
-    "device":"cpu",
+    "device":"cuda" if torch.cuda.is_available() else "cpu",
     "dataset":"czech_pdt",
     "model":"SimpleRNN",
     "we_dim":128,
@@ -27,6 +27,9 @@ simple_rnn_args = {
     "packed_sequences": True,
     "characters": True,
 }
+
+print()
+
 model = SimpleRNN(simple_rnn_args).to(simple_rnn_args["device"])
 optim = torch.optim.AdamW(model.parameters())
 loss_fn = nn.CrossEntropyLoss(label_smoothing=simple_rnn_args["label_smoothing"])
