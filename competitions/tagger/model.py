@@ -45,7 +45,7 @@ class SimpleRNN(nn.Module):
 
         # Character LSTM
         # embedd a word at a time where word is a sequence of characters
-        y = [[self.char_embedd(word) for word in sent] for sent in chars]
+        y = [[self.char_embedd(word.to(self.device)) for word in sent] for sent in chars]
         # pack words in sentence into one packed sequence
         y = [pack_sequence(embeddings, enforce_sorted=False) for embeddings in y]
         # output hidden state h_n for last character in a word
