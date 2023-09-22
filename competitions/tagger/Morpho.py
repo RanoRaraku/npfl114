@@ -90,14 +90,17 @@ class CustomDataset(Dataset):
             factor.finalize(dev._factors[i] if dev else None, add_bow_eow)
 
         self.unique_forms = len(self.forms.word_mapping)
+        self.unique_chars = len(self.forms.char_mapping)
         self.unique_tags = len(self.tags.word_mapping)
 
 
     def __getitem__(self, index:int) -> Tuple[Tensor, Tensor]:
+        
         words = tensor([self.forms.word_mapping[word] for word in self.forms.strings[index]]).to(torch.long)
+        chars = [torch.LongTensor([self.forms.char_mapping[char] for char in word]) for word in self.forms.strings[index]]
         tags = tensor([self.tags.word_mapping[tag] for tag in self.tags.strings[index]])
         tags = one_hot(tags, self.unique_tags).to(torch.float)
-        return words, tags
+        return words, chars, tags
 
     def __len__(self) -> int:
         return self._size
@@ -120,15 +123,16 @@ class CustomDataset(Dataset):
 
     @staticmethod
     def collate(samples):
-        words, tags = zip(*samples)
-        seq_lens = tensor(list(map(len, words)))
+        words, chars, tags = zip(*samples)
+        words_num = tensor(list(map(len, words))).to(torch.int64)
         return {
             "words": pad_sequence(words, batch_first=True),
+            "words_num": words_num,
+            "chars": chars,
             "tags": pad_sequence(tags, batch_first=True),
-            "sequence_lens": seq_lens.to(torch.int64),
         }
 
-    def to_dloader(self, batch_size:int=128, shuffle:bool=True, **kwargs) -> DataLoader:
+    def to_dataloader(self, batch_size:int=128, shuffle:bool=True, **kwargs) -> DataLoader:
         return DataLoader(
             self,
             batch_size,

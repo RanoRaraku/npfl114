@@ -16,20 +16,22 @@ simple_rnn_args = {
     "device":"cpu",
     "dataset":"czech_pdt",
     "model":"SimpleRNN",
-    "we_dim":64,
-    "hidden_size":128,
-    "num_layers":1,
+    "we_dim":128,
+    "hidden_size":1024,
+    "num_layers":4,
     "dropout":0.1,
     "word_vocab_size": morpho.train.unique_forms,
+    "char_vocab_size": morpho.train.unique_chars,
     "num_classes":morpho.train.unique_tags,
     "label_smoothing":0.1,
     "packed_sequences": True,
+    "characters": True,
 }
 model = SimpleRNN(simple_rnn_args).to(simple_rnn_args["device"])
 optim = torch.optim.AdamW(model.parameters())
 loss_fn = nn.CrossEntropyLoss(label_smoothing=simple_rnn_args["label_smoothing"])
-train_dloader = morpho.train.to_dloader(simple_rnn_args["batch_size"], shuffle=True)
-dev_dloader = morpho.dev.to_dloader(simple_rnn_args["batch_size"], shuffle=False)
+train_dloader = morpho.train.to_dataloader(simple_rnn_args["batch_size"], shuffle=True)
+dev_dloader = morpho.dev.to_dataloader(simple_rnn_args["batch_size"], shuffle=False)
 
 wandb.login()
 run_name =  datetime.datetime.now().strftime("%Y-%m-%d_%H:%M:%S")
