@@ -81,7 +81,6 @@ def train_epoch(model, train_dataloader, dev_dataloader, loss_fn, optim, logger:
         if logger is not None:
             logger.log({"train_loss": loss.item()})
 
-        exit()
     model.epoch += 1
 
     # log metrics to wandb
@@ -143,33 +142,20 @@ seq2seq_args = {
     "label_smoothing":0.1,
     "packed_sequences": True,
     "characters": True,
+    "max_length":64,
 }
 
-
-args = simple_rnn_args
-
+args = seq2seq_args
 # 1) SimpleRNN
-model = SimpleRNN(args).to(args["device"])
+# model = SimpleRNN(args).to(args["device"])
 # 2) Seq2Seq
-# model = Seq2Seq(args).to(args["device"])
-
+model = Seq2Seq(args).to(args["device"])
 
 
 optim = torch.optim.AdamW(model.parameters())
 loss_fn = nn.CrossEntropyLoss(label_smoothing=args["label_smoothing"])
 train_dloader = morpho.train.to_dataloader(args["batch_size"], shuffle=True)
 dev_dloader = morpho.dev.to_dataloader(args["batch_size"], shuffle=False)
-
-model, optim, loss = load_checkpoint(".", model, optim)
-
-
-wandb.login()
-run_name =  datetime.datetime.now().strftime("%Y-%m-%d_%H:%M:%S")
-wandb.init(project="tagger_competition", name=run_name, config=simple_rnn_args)
-for _ in range(simple_rnn_args["epochs"]):
-    train_epoch(model, train_dloader, dev_dloader, loss_fn, optim, wandb)
-wandb.finish()
-
 
 for _ in range(seq2seq_args["epochs"]):
     train_epoch(model, train_dloader, dev_dloader, loss_fn, optim)
