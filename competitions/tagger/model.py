@@ -55,6 +55,11 @@ class SimpleRNN(nn.Module):
         return z
 
 class Seq2Seq(nn.Module):
+    """
+    This is a bit weird. Encoder creates context vector and decoder uses it
+    as h_0 but then works as vanilla GRU with words as inputs and tags as outputs
+    for each time-step.
+    """
 
     class Encoder(nn.Module):
         def __init__(self, args):
@@ -118,7 +123,7 @@ class Seq2Seq(nn.Module):
             self.gru = nn.GRU(
                 input_size=args["we_dim"],
                 hidden_size=2*args["hidden_size"],
-                num_layers=args["num_layers"],
+                num_layers=1,
                 batch_first=True,
                 dropout=args["dropout"],
                 bidirectional=False,

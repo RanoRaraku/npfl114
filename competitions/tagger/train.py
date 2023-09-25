@@ -127,14 +127,14 @@ simple_rnn_args = {
     "characters": True,
 }
 seq2seq_args = {
-    "batch_size":2,
-    "epochs":1,
+    "batch_size":128,
+    "epochs":10,
     "device":"cuda" if torch.cuda.is_available() else "cpu",
     "dataset":"czech_pdt",
     "model":"Seq2Seq",
-    "we_dim":128,
-    "hidden_size":128,
-    "num_layers":1,
+    "we_dim":256,
+    "hidden_size":1024,
+    "num_layers":4,
     "dropout":0.1,
     "word_vocab_size": morpho.train.unique_forms,
     "char_vocab_size": morpho.train.unique_chars,
@@ -142,7 +142,6 @@ seq2seq_args = {
     "label_smoothing":0.1,
     "packed_sequences": True,
     "characters": True,
-    "max_length":64,
 }
 
 args = seq2seq_args
