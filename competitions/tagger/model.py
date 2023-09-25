@@ -122,7 +122,7 @@ class Seq2Seq(nn.Module):
 
     def forward(self, words, words_num, chars):
         
-        print(words.shape)
         encoded = self.encoder(words, words_num, chars)
-        print(encoded.shape)
+
+        return encoded
         

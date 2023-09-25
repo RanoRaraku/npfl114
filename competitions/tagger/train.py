@@ -1,7 +1,7 @@
 import wandb
 import datetime
 import time
-from typing import Optional, Any
+from typing import Optional, Any, Optional
 import torch
 import torch.nn as nn
 
@@ -37,7 +37,7 @@ def eval_accuracy(model, dloader, loss_fn: Optional[Any] = None):
 
     return corr / total_samples, total_loss / len(dloader)
 
-def train_epoch(model, optim, loss_fn, train_dataloader, dev_dataloader, logger):
+def train_epoch(model, train_dataloader, dev_dataloader, loss_fn, optim, logger:Optional[Any] = None):
 
     start_time = time.time()
     model.train()
@@ -61,7 +61,7 @@ def train_epoch(model, optim, loss_fn, train_dataloader, dev_dataloader, logger)
         loss.backward()
         optim.step()
 
-        if logger:
+        if logger is not None:
             logger.log({"train_loss": loss.item()})
 
         exit()
@@ -70,7 +70,7 @@ def train_epoch(model, optim, loss_fn, train_dataloader, dev_dataloader, logger)
     # log metrics to wandb
     dev_acc, dev_loss = eval_accuracy(dev_dataloader, loss_fn)
     end_time = time.time()
-    if logger:
+    if logger is not None:
         logger.log(
             {
                 "epoch_time": end_time - start_time,
@@ -129,17 +129,18 @@ seq2seq_args = {
 }
 
 
+args = simple_rnn_args
 
 # 1) SimpleRNN
-#model = SimpleRNN(simple_rnn_args).to(simple_rnn_args["device"])
+model = SimpleRNN(args).to(args["device"])
 # 2) Seq2Seq
-model = Seq2Seq(seq2seq_args).to(seq2seq_args["device"])
+# model = Seq2Seq(args).to(args["device"])
 
 
 optim = torch.optim.AdamW(model.parameters())
-loss_fn = nn.CrossEntropyLoss(label_smoothing=seq2seq_args["label_smoothing"])
-train_dloader = morpho.train.to_dataloader(seq2seq_args["batch_size"], shuffle=True)
-dev_dloader = morpho.dev.to_dataloader(seq2seq_args["batch_size"], shuffle=False)
+loss_fn = nn.CrossEntropyLoss(label_smoothing=args["label_smoothing"])
+train_dloader = morpho.train.to_dataloader(args["batch_size"], shuffle=True)
+dev_dloader = morpho.dev.to_dataloader(args["batch_size"], shuffle=False)
 
 
 # wandb.login()
@@ -151,5 +152,5 @@ dev_dloader = morpho.dev.to_dataloader(seq2seq_args["batch_size"], shuffle=False
 
 
 for _ in range(seq2seq_args["epochs"]):
-    train_epoch(model, train_dloader, dev_dloader, loss_fn, optim, wandb)
+    train_epoch(model, train_dloader, dev_dloader, loss_fn, optim)
 
