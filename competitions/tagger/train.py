@@ -7,6 +7,7 @@ import torch.nn as nn
 
 from Morpho import MorphoDataset
 from model import SimpleRNN, Seq2Seq
+import pathlib
 
 
 def eval_accuracy(model, dloader, loss_fn: Optional[Any] = None):
@@ -36,6 +37,22 @@ def eval_accuracy(model, dloader, loss_fn: Optional[Any] = None):
             total_loss += loss.item()
 
     return corr / total_samples, total_loss / len(dloader)
+
+def load_checkpoint(path, model, optim):
+
+    last_checkpoint = 0
+    for f in pathlib.Path(".").iterdir():
+        if ".pt" in str(f) and int(f.stem) > last_checkpoint:
+            path = str(f)
+
+    checkpoint = torch.load(path)
+    model.load_state_dict(checkpoint['model_state_dict'])
+    optim.load_state_dict(checkpoint['optimizer_state_dict'])
+    epoch = checkpoint['epoch']
+    loss = checkpoint['loss']
+
+    model.epoch = epoch
+    return model, optim, loss
 
 def train_epoch(model, train_dataloader, dev_dataloader, loss_fn, optim, logger:Optional[Any] = None):
 
@@ -68,7 +85,7 @@ def train_epoch(model, train_dataloader, dev_dataloader, loss_fn, optim, logger:
     model.epoch += 1
 
     # log metrics to wandb
-    dev_acc, dev_loss = eval_accuracy(dev_dataloader, loss_fn)
+    dev_acc, dev_loss = eval_accuracy(model, dev_dataloader, loss_fn)
     end_time = time.time()
     if logger is not None:
         logger.log(
@@ -99,7 +116,7 @@ simple_rnn_args = {
     "device":"cuda" if torch.cuda.is_available() else "cpu",
     "dataset":"czech_pdt",
     "model":"SimpleRNN",
-    "we_dim":128,
+    "we_dim":256,
     "hidden_size":1024,
     "num_layers":4,
     "dropout":0.1,
@@ -137,18 +154,21 @@ model = SimpleRNN(args).to(args["device"])
 # model = Seq2Seq(args).to(args["device"])
 
 
+
 optim = torch.optim.AdamW(model.parameters())
 loss_fn = nn.CrossEntropyLoss(label_smoothing=args["label_smoothing"])
 train_dloader = morpho.train.to_dataloader(args["batch_size"], shuffle=True)
 dev_dloader = morpho.dev.to_dataloader(args["batch_size"], shuffle=False)
 
+model, optim, loss = load_checkpoint(".", model, optim)
 
-# wandb.login()
-# run_name =  datetime.datetime.now().strftime("%Y-%m-%d_%H:%M:%S")
-# wandb.init(project="tagger_competition", name=run_name, config=simple_rnn_args)
-# for _ in range(simple_rnn_args["epochs"]):
-#     train_epoch(model, train_dloader, dev_dloader, loss_fn, optim, wandb)
-# wandb.finish()
+
+wandb.login()
+run_name =  datetime.datetime.now().strftime("%Y-%m-%d_%H:%M:%S")
+wandb.init(project="tagger_competition", name=run_name, config=simple_rnn_args)
+for _ in range(simple_rnn_args["epochs"]):
+    train_epoch(model, train_dloader, dev_dloader, loss_fn, optim, wandb)
+wandb.finish()
 
 
 for _ in range(seq2seq_args["epochs"]):
