@@ -27,7 +27,7 @@ def eval_accuracy(model, dloader, loss_fn: Optional[Any] = None):
         mask = torch.arange(max_seq_len, device=model.device).expand(
             len(words_num), max_seq_len
         ) < words_num.unsqueeze(1)
-        y_hat = model(words, words_num, chars)
+        y_hat = model(words, words_num, chars, tags)
         corr += torch.sum(
             torch.argmax(y_hat[mask], dim=-1) == torch.argmax(tags[mask], dim=-1)
         )

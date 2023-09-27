@@ -32,7 +32,7 @@ class SimpleRNN(nn.Module):
         )
         self.linear = nn.Linear(args["hidden_size"] * 2, args["num_classes"])
 
-    def forward(self, words, words_num, chars):
+    def forward(self, words, words_num, chars, targets:None):
         # word LSTM
         x = self.word_embedd(words)
         x = pack_padded_sequence(
