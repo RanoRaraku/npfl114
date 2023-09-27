@@ -107,9 +107,9 @@ class Seq2Seq(nn.Module):
             y = pad_sequence(y, batch_first=True)
 
             z = x + y
-
-            # return last item in sequence
-            return z[:,-1,:].unsqueeze(0)
+            
+            # return last/first item in forward/backward sequence
+            return torch.cat((z[:,-1,:128], z[:,0,128:]), -1).unsqueeze(1)
 
     class Decoder(nn.Module):
         def __init__(self, args):
@@ -117,7 +117,6 @@ class Seq2Seq(nn.Module):
             self.epoch = 0
             self.args = args
             self.device = args["device"]
-            self.max_length = args["max_length"]
 
             self.embedd = nn.Embedding(args["word_vocab_size"], args["we_dim"])
             self.gru = nn.GRU(
@@ -131,15 +130,41 @@ class Seq2Seq(nn.Module):
             self.out = nn.Linear(2*args["hidden_size"], args["num_classes"])
 
 
-        def forward(self, encoder_hidden, decoder_input, decoder_input_num, target_tensor=None):
+        def forward_step(self, hidden, input, input_num):
 
-            x = self.embedd(decoder_input)
+            x = self.embedd(input)
             x = pack_padded_sequence(
-                x, decoder_input_num.to("cpu"), batch_first=True, enforce_sorted=False
+                x, input_num.to("cpu"), batch_first=True, enforce_sorted=False
             )
-            x, _ = self.gru(x, encoder_hidden)
+            x, _ = self.gru(x, hidden)
             x, _ = pad_packed_sequence(x, batch_first=True)
             x = self.out(x)
+
+            return x
+
+        def forward(self, hidden, input_nums, target=None):
+            """
+            Word->Tag is 1:1 mapping, use this info to setup output size.
+            """
+
+            batch_size = hidden.size(0)
+            max_len = torch.max(input_nums)
+            input = torch.empty(batch_size, 1, dtype=torch.long, device=self.device).fill_(-1)
+            outputs = []
+
+            for i in range(max_len):
+                decoder_output, decoder_hidden  = self.forward_step(decoder_input, decoder_hidden)
+                outputs.append(decoder_output)
+
+                if target is not None:
+                    # Teacher forcing: Feed the target as the next input
+                    decoder_input = target[:, i].unsqueeze(1) # Teacher forcing
+                else:
+                    # Without teacher forcing: use its own predictions as the next input
+                    _, topi = decoder_output.topk(1)
+                    decoder_input = topi.squeeze(-1).detach()  # detach from history as input
+
+
 
             return x
 
@@ -155,7 +180,7 @@ class Seq2Seq(nn.Module):
     def forward(self, words, words_num, chars):
         
         encoded = self.encoder(words, words_num, chars)
-        decoded = self.decoder(encoded, words, words_num)
+        #decoded = self.decoder(encoded, words, words_num)
 
-        return decoded
+        return encoded
         
