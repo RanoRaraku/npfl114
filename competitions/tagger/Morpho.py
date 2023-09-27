@@ -1,13 +1,13 @@
 import os
 import sys
-from typing import BinaryIO, Optional, Dict, Tuple, Any
 import zipfile
+from typing import Any, BinaryIO, Dict, Optional, Tuple
 
 import torch
-from torch import tensor, Tensor
-from torch.utils.data import Dataset, DataLoader
+from torch import Tensor, tensor
 from torch.nn.functional import one_hot
 from torch.nn.utils.rnn import pad_sequence
+from torch.utils.data import DataLoader, Dataset
 
 # Loads a morphological dataset in a vertical format.
 # - The data consists of three datasets
@@ -35,34 +35,44 @@ class Factor:
     def __init__(self) -> None:
         self.strings = []
 
-    def finalize(self, dev: Optional[Any] = None, add_bow_eow: bool = False) -> None:
-
-        word_vocab = [string for sentence in self.strings for string in sentence]
-
-        additional_characters = []
-        if add_bow_eow:
-            additional_characters.extend(["[BOW]", "[EOW]"])
-        char_vocab = additional_characters + [char for sentence in self.strings for string in sentence for char in string]
+    def finalize(self, dev: Optional[Any] = None) -> None:
+        additional_words = ["<BOS>", "<EOS>"]
+        word_vocab = additional_words + [
+            string for sentence in self.strings for string in sentence
+        ]
+        char_vocab = [
+            char for sentence in self.strings for string in sentence for char in string
+        ]
 
         if dev:
             word_vocab += [string for sentence in dev.strings for string in sentence]
-            char_vocab += [char for sentence in dev.strings for string in sentence for char in string]
+            char_vocab += [
+                char
+                for sentence in dev.strings
+                for string in sentence
+                for char in string
+            ]
 
-        self.char_mapping = {k:v for v,k in enumerate(sorted(set(char_vocab)))}
-        self.word_mapping = {k:v for v,k in enumerate(sorted(set(word_vocab)))}
+        self.char_mapping = {k: v for v, k in enumerate(sorted(set(char_vocab)))}
+        self.word_mapping = {k: v for v, k in enumerate(sorted(set(word_vocab)))}
 
 
 class CustomDataset(Dataset):
+    """
+    ToDo:
+    1) <EOS> to every sentence for encoder
+    """
 
     def __init__(
         self,
         data_file: BinaryIO,
         dev: Optional[Any] = None,
         max_sentences: Optional[int] = None,
-        add_bow_eow: bool = False
+        add_sos_eos: bool = False,
     ):
         # Create factors
         self._factors = Factor(), Factor(), Factor()
+        self.add_sos_eos = add_sos_eos
 
         # Load the data
         self._size = 0
@@ -87,19 +97,24 @@ class CustomDataset(Dataset):
 
         # Finalize the mappings
         for i, factor in enumerate(self._factors):
-            factor.finalize(dev._factors[i] if dev else None, add_bow_eow)
+            factor.finalize(dev._factors[i] if dev else None)
 
         self.unique_forms = len(self.forms.word_mapping)
         self.unique_chars = len(self.forms.char_mapping)
         self.unique_tags = len(self.tags.word_mapping)
 
-
-    def __getitem__(self, index:int) -> Tuple[Tensor, Tensor]:
-        
-        words = tensor([self.forms.word_mapping[word] for word in self.forms.strings[index]]).to(torch.long)
-        chars = [torch.LongTensor([self.forms.char_mapping[char] for char in word]) for word in self.forms.strings[index]]
+    def __getitem__(self, index: int) -> Tuple[Tensor, Tensor]:
+        words = tensor(
+            [self.forms.word_mapping[word] for word in self.forms.strings[index]]
+        ).to(torch.long)
+        chars = [
+            torch.LongTensor([self.forms.char_mapping[char] for char in word])
+            for word in self.forms.strings[index]
+        ]
         tags = tensor([self.tags.word_mapping[tag] for tag in self.tags.strings[index]])
-        tags = one_hot(tags, self.unique_tags).to(torch.float)
+        if not self.add_sos_eos:
+            tags = one_hot(tags, self.unique_tags).to(torch.float)
+
         return words, chars, tags
 
     def __len__(self) -> int:
@@ -132,7 +147,9 @@ class CustomDataset(Dataset):
             "tags": pad_sequence(tags, batch_first=True),
         }
 
-    def to_dataloader(self, batch_size:int=128, shuffle:bool=True, **kwargs) -> DataLoader:
+    def to_dataloader(
+        self, batch_size: int = 128, shuffle: bool = True, **kwargs
+    ) -> DataLoader:
         return DataLoader(
             self,
             batch_size,
@@ -140,17 +157,17 @@ class CustomDataset(Dataset):
             shuffle=shuffle,
             **kwargs,
         )
-    
+
 
 class MorphoDataset:
-    BOW: int = 1
-    EOW: int = 2
+    BOS: int = 0
+    EOS: int = 1
     _URL: str = "https://ufal.mff.cuni.cz/~straka/courses/npfl114/2223/datasets/"
 
     train: CustomDataset
     dev: CustomDataset
 
-    def __init__(self, dataset, max_sentences=None, add_bow_eow=False):
+    def __init__(self, dataset, max_sentences=None, add_sos_eos=False):
         path = "{}.zip".format(dataset)
         if not os.path.exists(path):
             print("Missing dataset {}...".format(dataset), file=sys.stderr)
@@ -158,12 +175,20 @@ class MorphoDataset:
 
         with zipfile.ZipFile(path, "r") as zip_file:
             for dataset in ["dev", "train"]:
-                with zip_file.open("{}_{}.txt".format(os.path.splitext(path)[0], dataset), "r") as dataset_file:
-                    setattr(self, dataset, CustomDataset(
-                        dataset_file, dev=self.dev if dataset == "train" else None,
-                        max_sentences=max_sentences, add_bow_eow=add_bow_eow)
+                with zip_file.open(
+                    "{}_{}.txt".format(os.path.splitext(path)[0], dataset), "r"
+                ) as dataset_file:
+                    setattr(
+                        self,
+                        dataset,
+                        CustomDataset(
+                            dataset_file,
+                            dev=self.dev if dataset == "train" else None,
+                            max_sentences=max_sentences,
+                            add_sos_eos=add_sos_eos,
+                        ),
                     )
-        
+
         # hack to share mappings
         self.dev.forms.word_mapping = self.train.forms.word_mapping
         self.dev.forms.char_mapping = self.train.forms.char_mapping

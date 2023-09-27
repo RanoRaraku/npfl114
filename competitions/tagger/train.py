@@ -1,13 +1,14 @@
-import wandb
 import datetime
+import pathlib
 import time
-from typing import Optional, Any, Optional
+from typing import Any, Optional
+
 import torch
 import torch.nn as nn
+import wandb
 
+from model import Seq2Seq, SimpleRNN
 from Morpho import MorphoDataset
-from model import SimpleRNN, Seq2Seq
-import pathlib
 
 
 def eval_accuracy(model, dloader, loss_fn: Optional[Any] = None):
@@ -21,7 +22,7 @@ def eval_accuracy(model, dloader, loss_fn: Optional[Any] = None):
         words = batch["words"].to(model.device)
         chars = batch["chars"]
         tags = batch["tags"].to(model.device)
-        
+
         max_seq_len = torch.max(words_num)
         mask = torch.arange(max_seq_len, device=model.device).expand(
             len(words_num), max_seq_len
@@ -38,24 +39,31 @@ def eval_accuracy(model, dloader, loss_fn: Optional[Any] = None):
 
     return corr / total_samples, total_loss / len(dloader)
 
-def load_checkpoint(path, model, optim):
 
+def load_checkpoint(path, model, optim):
     last_checkpoint = 0
     for f in pathlib.Path(".").iterdir():
         if ".pt" in str(f) and int(f.stem) > last_checkpoint:
             path = str(f)
 
     checkpoint = torch.load(path)
-    model.load_state_dict(checkpoint['model_state_dict'])
-    optim.load_state_dict(checkpoint['optimizer_state_dict'])
-    epoch = checkpoint['epoch']
-    loss = checkpoint['loss']
+    model.load_state_dict(checkpoint["model_state_dict"])
+    optim.load_state_dict(checkpoint["optimizer_state_dict"])
+    epoch = checkpoint["epoch"]
+    loss = checkpoint["loss"]
 
     model.epoch = epoch
     return model, optim, loss
 
-def train_epoch(model, train_dataloader, dev_dataloader, loss_fn, optim, logger:Optional[Any] = None):
 
+def train_epoch(
+    model,
+    train_dataloader,
+    dev_dataloader,
+    loss_fn,
+    optim,
+    logger: Optional[Any] = None,
+):
     start_time = time.time()
     model.train()
     for batch in train_dataloader:
@@ -70,7 +78,7 @@ def train_epoch(model, train_dataloader, dev_dataloader, loss_fn, optim, logger:
         ) < words_num.unsqueeze(1)
 
         # Run inference
-        y_hat = model(words, words_num, chars)
+        y_hat = model(words, words_num, chars, tags)
         loss = loss_fn(y_hat[mask], tags[mask])
 
         # Update params
@@ -80,6 +88,8 @@ def train_epoch(model, train_dataloader, dev_dataloader, loss_fn, optim, logger:
 
         if logger is not None:
             logger.log({"train_loss": loss.item()})
+
+        exit()
 
     model.epoch += 1
 
@@ -107,47 +117,45 @@ def train_epoch(model, train_dataloader, dev_dataloader, loss_fn, optim, logger:
     )
 
 
-morpho = MorphoDataset("czech_pdt")
+morpho = MorphoDataset("czech_pdt", add_sos_eos=True)
 
 simple_rnn_args = {
-    "batch_size":128,
-    "epochs":20,
-    "device":"cuda" if torch.cuda.is_available() else "cpu",
-    "dataset":"czech_pdt",
-    "model":"SimpleRNN",
-    "we_dim":256,
-    "hidden_size":1024,
-    "num_layers":4,
-    "dropout":0.1,
+    "batch_size": 128,
+    "epochs": 20,
+    "device": "cuda" if torch.cuda.is_available() else "cpu",
+    "dataset": "czech_pdt",
+    "model": "SimpleRNN",
+    "we_dim": 256,
+    "hidden_size": 1024,
+    "num_layers": 4,
+    "dropout": 0.1,
     "word_vocab_size": morpho.train.unique_forms,
     "char_vocab_size": morpho.train.unique_chars,
-    "num_classes":morpho.train.unique_tags,
-    "label_smoothing":0.1,
+    "num_classes": morpho.train.unique_tags,
+    "label_smoothing": 0.1,
     "packed_sequences": True,
     "characters": True,
 }
 seq2seq_args = {
-    "batch_size":128,
-    "epochs":10,
-    "device":"cuda" if torch.cuda.is_available() else "cpu",
-    "dataset":"czech_pdt",
-    "model":"Seq2Seq",
-    "we_dim":256,
-    "hidden_size":1024,
-    "num_layers":4,
-    "dropout":0.1,
+    "batch_size": 64,
+    "epochs": 10,
+    "device": "cuda" if torch.cuda.is_available() else "cpu",
+    "dataset": "czech_pdt",
+    "model": "Seq2Seq",
+    "we_dim": 256,
+    "hidden_size": 1024,
+    "num_layers": 3,
+    "dropout": 0.1,
     "word_vocab_size": morpho.train.unique_forms,
     "char_vocab_size": morpho.train.unique_chars,
-    "num_classes":morpho.train.unique_tags,
-    "label_smoothing":0.1,
+    "num_classes": morpho.train.unique_tags,
+    "label_smoothing": 0.1,
     "packed_sequences": True,
     "characters": True,
 }
 
 args = seq2seq_args
-# 1) SimpleRNN
 # model = SimpleRNN(args).to(args["device"])
-# 2) Seq2Seq
 model = Seq2Seq(args).to(args["device"])
 
 
@@ -158,4 +166,3 @@ dev_dloader = morpho.dev.to_dataloader(args["batch_size"], shuffle=False)
 
 for _ in range(seq2seq_args["epochs"]):
     train_epoch(model, train_dloader, dev_dloader, loss_fn, optim)
-
