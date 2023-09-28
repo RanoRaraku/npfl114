@@ -247,6 +247,7 @@ def train_epoch(
     dev_dataloader,
     loss_fn,
     optim,
+    scheduler: Optional[Any] = None,
     logger: Optional[Any] = None,
 ):
     start_time = time.time()
@@ -273,8 +274,10 @@ def train_epoch(
 
         if logger is not None:
             logger.log({"train_loss": loss.item()})
-
     model.epoch += 1
+
+    if scheduler is not None:
+        scheduler.step()
 
     # log metrics to wandb
     dev_acc, dev_loss = eval_accuracy(model, dev_dataloader, loss_fn)
