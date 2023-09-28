@@ -1,8 +1,12 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torch.nn.utils.rnn import (pack_padded_sequence, pack_sequence,
-                                pad_packed_sequence, pad_sequence)
+from torch.nn.utils.rnn import (
+    pack_padded_sequence,
+    pack_sequence,
+    pad_packed_sequence,
+    pad_sequence,
+)
 
 
 class SimpleRNN(nn.Module):
@@ -32,7 +36,7 @@ class SimpleRNN(nn.Module):
         )
         self.linear = nn.Linear(args["hidden_size"] * 2, args["num_classes"])
 
-    def forward(self, words, words_num, chars, targets:None):
+    def forward(self, words, words_num, chars, targets=None):
         # word LSTM
         x = self.word_embedd(words)
         x = pack_padded_sequence(
@@ -185,7 +189,7 @@ class Seq2Seq(nn.Module):
         self.encoder = Seq2Seq.Encoder(args)
         self.decoder = Seq2Seq.Decoder(args)
 
-    def forward(self, words, words_num, chars, targets: None):
+    def forward(self, words, words_num, chars, targets=None):
         encoded = self.encoder(words, words_num, chars)
         decoded = self.decoder(encoded, words_num, targets)
 

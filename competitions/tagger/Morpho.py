@@ -112,8 +112,6 @@ class CustomDataset(Dataset):
             for word in self.forms.strings[index]
         ]
         tags = tensor([self.tags.word_mapping[tag] for tag in self.tags.strings[index]])
-        #if not self.add_sos_eos:
-        #    tags = one_hot(tags, self.unique_tags).to(torch.float)
 
         return words, chars, tags
 
