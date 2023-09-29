@@ -111,7 +111,10 @@ class CustomDataset(Dataset):
             torch.LongTensor([self.forms.char_mapping[char] for char in word])
             for word in self.forms.strings[index]
         ]
-        tags = tensor([self.tags.word_mapping[tag] for tag in self.tags.strings[index]])
+        tags = tensor(
+            [self.tags.word_mapping[tag] for tag in self.tags.strings[index]]
+            + [self.tags.word_mapping["<EOS>"]]
+        )
 
         return words, chars, tags
 
