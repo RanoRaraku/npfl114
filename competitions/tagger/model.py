@@ -253,18 +253,20 @@ class Seq2SeqAttn(nn.Module):
         def __init__(self, args):
             super(Seq2SeqAttn.BahdanauAttention, self).__init__()
             self.U = nn.Linear(2 * args["encoder_hidden_size"], args["attention_size"])
-            self.W = nn.Linear(args["decoder_hidden_size"], args["attention_size"])
+            self.W = nn.Linear(2 * args["encoder_hidden_size"], args["attention_size"])
             self.V = nn.Linear(args["attention_size"], 1, bias=False)
 
-        def foward(self, encoder_hidden, decoder_hidden):
-            e = self.V(torch.tanh(self.U(encoder_hidden) + self.W(decoder_hidden)))
-            alpha = nn.functional.softmax(e, 1)
-            c = torch.bmm(alpha, encoder_hidden)
+        def forward(self, encoder_outputs, decoder_hidden):
+            e = self.V(torch.tanh(self.U(encoder_outputs) + self.W(decoder_hidden)))
+            alpha = nn.functional.softmax(e, -1)
+
+            print(f"eh:{encoder_outputs.shape}, e:{e.shape} - alpha:{alpha.shape}")
+            c = torch.bmm(alpha, encoder_outputs)
             return c
 
     class Decoder(nn.Module):
         def __init__(self, args):
-            super(Seq2Seq.Decoder, self).__init__()
+            super(Seq2SeqAttn.Decoder, self).__init__()
             self.device = args["device"]
 
             self.embedding = nn.Embedding(args["word_vocab_size"], args["we_dim"])
@@ -281,18 +283,24 @@ class Seq2SeqAttn(nn.Module):
 
         def forward_step(self, encoder_outputs, decoder_hidden, decoder_inputs):
             """
-            1 krok RNN, 1 item sekvencie.
             """
+
+            print(f"{encoder_outputs.shape}, {decoder_hidden.shape}, {decoder_inputs.shape}")
             x = self.embedding(decoder_inputs)
             c = self.attention(encoder_outputs, decoder_hidden)
-            x, h = self.gru(torch.cat((x, c), dim=-1), decoder_hidden)
+            x, h = self.gru(torch.cat((x, c), dim=-1), decoder_hidden.permute(1,0,2))
             x = self.out(x)
+
+            exit()
+
             return x, h
 
         def forward(self, encoder_outputs, inputs_num, targets=None):
             """
-            Word->Tag is 1:1 mapping, use this info to setup output size.
-            tag_length == word_length + 2 and <BOS> is 0 and <EOS> is 1.
+
+            1) Init decoder h_0 to encoder output
+            2) Word->Tag is 1:1 mapping, use this info to setup max_len
+            3) 
             """
             decoder_hidden = encoder_outputs
             batch_size = encoder_outputs.size(0)
@@ -301,6 +309,9 @@ class Seq2SeqAttn(nn.Module):
                 batch_size, 1, dtype=torch.long, device=self.device
             )
             decoder_outputs = []
+
+
+
 
             for i in range(max_len):
                 output, decoder_hidden = self.forward_step(
