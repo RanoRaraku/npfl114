@@ -293,9 +293,6 @@ class Seq2SeqAttn(nn.Module):
             c = self.attention(encoder_outputs, decoder_hidden)
             x, h = self.gru(torch.cat((x, c), dim=-1), decoder_hidden.permute(1, 0, 2))
             x = self.out(x)
-
-            exit()
-
             return x, h
 
         def forward(self, encoder_outputs, inputs_num, targets=None):
@@ -415,7 +412,6 @@ def train_epoch(
 
         # Run inference
         y_hat = model(words, words_num, chars, tags)
-        exit()
         loss = loss_fn(y_hat[mask], tags[mask])
 
         # Update params
