@@ -72,6 +72,12 @@ class Seq2Seq(nn.Module):
     """
 
     class Encoder(nn.Module):
+        """
+        TN: character encoded pricitam ku kazdemu slovu ale ked to vraciam ako
+        vystup encoderu tak mi chybaju pre ine prve a posledne slovo
+        TN: pridat <EOS> na koniec a spravne matchovat pri loss calc
+        """
+
         def __init__(self, args):
             super(Seq2Seq.Encoder, self).__init__()
             self.args = args
@@ -80,8 +86,8 @@ class Seq2Seq(nn.Module):
             self.word_embedd = nn.Embedding(args["word_vocab_size"], args["we_dim"])
             self.word_lstm = nn.LSTM(
                 input_size=args["we_dim"],
-                hidden_size=args["hidden_size"],
-                num_layers=args["num_layers"],
+                hidden_size=args["encoder_hidden_size"],
+                num_layers=args["word_encoder_layers"],
                 batch_first=True,
                 dropout=args["dropout"],
                 bidirectional=True,
@@ -89,12 +95,13 @@ class Seq2Seq(nn.Module):
             self.char_embedd = nn.Embedding(args["char_vocab_size"], args["we_dim"])
             self.char_lstm = nn.LSTM(
                 input_size=args["we_dim"],
-                hidden_size=2 * args["hidden_size"],
-                num_layers=1,
+                hidden_size=args["encoder_hidden_size"],
+                num_layers=args["char_encoder_layers"],
                 batch_first=True,
                 dropout=args["dropout"],
                 bidirectional=False,
             )
+
 
         def forward(self, words, words_num, chars):
             # word LSTM
@@ -116,16 +123,15 @@ class Seq2Seq(nn.Module):
             # output hidden state h_n for last character in a word
             y = [self.char_lstm(packed)[1][0].squeeze(0) for packed in y]
             # pad to match dimensionality of word_lstm
-            y = pad_sequence(y, batch_first=True)
-
-            z = x + y
+            y = pad_sequence(y, batch_first=True) 
 
             # return last/first item in forward/backward sequence
             # tensor is of shape (B, 1, 2*hidden_dim)
             return (
-                torch.cat((z[:, -1, :128], z[:, 0, 128:]), -1)
+                torch.cat((x[:, -1, :int(x.shape[-1]/2)], x[:, 0, int(x.shape[-1]/2):]), -1)
                 .unsqueeze(1)
-                .permute(1, 0, 2)
+                .permute(1, 0, 2),
+                y, 
             )
 
     class Decoder(nn.Module):
@@ -136,40 +142,38 @@ class Seq2Seq(nn.Module):
 
             self.embedding = nn.Embedding(args["word_vocab_size"], args["we_dim"])
             self.gru = nn.GRU(
-                input_size=args["we_dim"],
-                hidden_size=2 * args["hidden_size"],
+                input_size=args["we_dim"] + args["encoder_hidden_size"],
+                hidden_size=2 * args["decoder_hidden_size"],
                 num_layers=1,
                 batch_first=True,
                 dropout=args["dropout"],
                 bidirectional=False,
             )
-            self.out = nn.Linear(2 * args["hidden_size"], args["num_classes"])
+            self.out = nn.Linear(2 * args["decoder_hidden_size"], args["num_classes"])
 
-        def forward_step(self, hidden, input):
+        def forward_step(self, hidden, input, chars_encoded):
             """
             1 krok RNN, 1 item sekvencie.
             """
             x = self.embedding(input)
-            x, h = self.gru(x, hidden)
+            x, h = self.gru(torch.cat((x, chars_encoded.unsqueeze(1)), -1), hidden)
             x = self.out(x)
             return x, h
 
-        def forward(self, encoded, inputs_num, targets=None):
+        def forward(self, context, chars_encoded, words_num, targets=None):
             """
             Word->Tag is 1:1 mapping, use this info to setup output size.
-            tag_length == word_length + 2 and <BOS> is 0 and <EOS> is 1.
             """
-            hidden = encoded
+            hidden = context
             batch_size = hidden.size(1)
-            max_len = torch.max(inputs_num).item()
+            max_len = torch.max(words_num).item()
             inputs = torch.zeros(batch_size, 1, dtype=torch.long, device=self.device)
             outputs = []
 
             for i in range(max_len):
-                output, hidden = self.forward_step(hidden, inputs)
+                output, hidden = self.forward_step(hidden, inputs, chars_encoded[:,i,:])
                 outputs.append(output)
 
-                # print(f"targets:{targets.shape}")
                 if targets is not None:
                     # Teacher forcing: Feed the target as the next input
                     inputs = targets[:, i].unsqueeze(1)  # Teacher forcing
@@ -191,8 +195,8 @@ class Seq2Seq(nn.Module):
         self.decoder = Seq2Seq.Decoder(args)
 
     def forward(self, words, words_num, chars, targets=None):
-        encoded = self.encoder(words, words_num, chars)
-        decoded = self.decoder(encoded, words_num, targets)
+        context, chars_encoded = self.encoder(words, words_num, chars)
+        decoded = self.decoder(context, chars_encoded, words_num, targets)
 
         return decoded
 
@@ -259,12 +263,14 @@ class Seq2SeqAttn(nn.Module):
         def forward(self, encoder_outputs, decoder_hidden):
             e = self.V(torch.tanh(self.U(encoder_outputs) + self.W(decoder_hidden)))
             alpha = nn.functional.softmax(e, -1)
-
-            print(f"eh:{encoder_outputs.shape}, e:{e.shape} - alpha:{alpha.shape}")
             c = torch.bmm(alpha, encoder_outputs)
             return c
 
     class Decoder(nn.Module):
+        """
+        1) Inicializovat dekoder poslednym stavom enkoderu
+        """
+
         def __init__(self, args):
             super(Seq2SeqAttn.Decoder, self).__init__()
             self.device = args["device"]
@@ -282,13 +288,10 @@ class Seq2SeqAttn(nn.Module):
             self.out = nn.Linear(args["decoder_hidden_size"], args["num_classes"])
 
         def forward_step(self, encoder_outputs, decoder_hidden, decoder_inputs):
-            """
-            """
-
-            print(f"{encoder_outputs.shape}, {decoder_hidden.shape}, {decoder_inputs.shape}")
+            """ """
             x = self.embedding(decoder_inputs)
             c = self.attention(encoder_outputs, decoder_hidden)
-            x, h = self.gru(torch.cat((x, c), dim=-1), decoder_hidden.permute(1,0,2))
+            x, h = self.gru(torch.cat((x, c), dim=-1), decoder_hidden.permute(1, 0, 2))
             x = self.out(x)
 
             exit()
@@ -300,7 +303,7 @@ class Seq2SeqAttn(nn.Module):
 
             1) Init decoder h_0 to encoder output
             2) Word->Tag is 1:1 mapping, use this info to setup max_len
-            3) 
+            3)
             """
             decoder_hidden = encoder_outputs
             batch_size = encoder_outputs.size(0)
@@ -310,16 +313,12 @@ class Seq2SeqAttn(nn.Module):
             )
             decoder_outputs = []
 
-
-
-
             for i in range(max_len):
                 output, decoder_hidden = self.forward_step(
                     encoder_outputs, decoder_hidden, decoder_inputs
                 )
                 decoder_outputs.append(output)
 
-                # print(f"targets:{targets.shape}")
                 if targets is not None:
                     # Teacher forcing: Feed the target as the next input
                     decoder_inputs = targets[:, i].unsqueeze(1)  # Teacher forcing
@@ -416,8 +415,6 @@ def train_epoch(
 
         # Run inference
         y_hat = model(words, words_num, chars, tags)
-
-        print(f"{words.shape} - {y_hat.shape}")
         exit()
         loss = loss_fn(y_hat[mask], tags[mask])
 
