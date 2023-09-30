@@ -140,12 +140,13 @@ class CustomDataset(Dataset):
     @staticmethod
     def collate(samples):
         words, chars, tags = zip(*samples)
-        words_num = tensor(list(map(len, words))).to(torch.int64) + 1
+        words_num = tensor(list(map(len, words))).to(torch.int64)
         return {
             "words": pad_sequence(words, batch_first=True),
             "words_num": words_num,
             "chars": chars,
             "tags": pad_sequence(tags, batch_first=True),
+            "tags_num": words_num + 1,
         }
 
     def to_dataloader(

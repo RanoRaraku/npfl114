@@ -400,18 +400,18 @@ def train_epoch(
     start_time = time.time()
     model.train()
     for batch in train_dataloader:
-        words_num = batch["words_num"].to(model.device)
         words = batch["words"].to(model.device)
         chars = batch["chars"]
         tags = batch["tags"].to(model.device)
+        tags_num = batch["tags_num"].to(model.device)
 
-        max_words_num = torch.max(words_num)
-        mask = torch.arange(max_words_num, device=model.device).expand(
-            len(words_num), max_words_num
-        ) < words_num.unsqueeze(1)
+        max_tags_num = torch.max(tags_num)
+        mask = torch.arange(max_tags_num, device=model.device).expand(
+            len(tags_num), max_tags_num
+        ) < tags_num.unsqueeze(1)
 
         # Run inference
-        y_hat = model(words, words_num, chars, tags)
+        y_hat = model(words, batch["words_num"].to(model.device), chars, tags)
         loss = loss_fn(y_hat[mask], tags[mask])
 
         # Update params
