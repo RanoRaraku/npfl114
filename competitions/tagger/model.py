@@ -413,8 +413,6 @@ def train_epoch(
 
         # Run inference
         y_hat = model(words, batch["words_num"].to(model.device), chars, tags)
-        print(f" w:{words.shape}, c:{len(chars)}, t:{tags.shape}, yh:{y_hat.shape}")
-
         loss = loss_fn(y_hat[mask], tags[mask])
 
         # Update params
