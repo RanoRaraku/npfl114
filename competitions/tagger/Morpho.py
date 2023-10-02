@@ -173,7 +173,7 @@ class MorphoDataset:
         path = "{}.zip".format(dataset)
         if not os.path.exists(path):
             print("Missing dataset {}...".format(dataset), file=sys.stderr)
-            exit
+            exit()
 
         with zipfile.ZipFile(path, "r") as zip_file:
             for dataset in ["dev", "train"]:
