@@ -1,15 +1,14 @@
-import torch.nn as nn
-import wandb
-
-import torch
-from torch.optim.lr_scheduler import StepLR
-
-from model import Seq2Seq, SimpleRNN, Seq2SeqAttn, train_epoch
-from Morpho import MorphoDataset
 import datetime
 
+import torch
+import torch.nn as nn
+import wandb
+from torch.optim.lr_scheduler import StepLR
 
-morpho = MorphoDataset("czech_pdt", add_sos_eos=True)
+from model import Seq2Seq, Seq2SeqAttn, SimpleRNN, train_epoch
+from Morpho import MorphoDataset
+
+morpho = MorphoDataset("czech_pdt")
 
 simple_rnn_args = {
     "batch_size": 2,

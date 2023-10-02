@@ -1,14 +1,11 @@
-import torch
-import torch.nn as nn
-from torch.nn.utils.rnn import (
-    pack_padded_sequence,
-    pack_sequence,
-    pad_packed_sequence,
-    pad_sequence,
-)
 import pathlib
 import time
 from typing import Any, Optional
+
+import torch
+import torch.nn as nn
+from torch.nn.utils.rnn import (pack_padded_sequence, pack_sequence,
+                                pad_packed_sequence, pad_sequence)
 
 
 class SimpleRNN(nn.Module):
@@ -102,7 +99,6 @@ class Seq2Seq(nn.Module):
                 bidirectional=False,
             )
 
-
         def forward(self, words, words_num, chars):
             # word LSTM
             x = self.word_embedd(words)
@@ -123,15 +119,18 @@ class Seq2Seq(nn.Module):
             # output hidden state h_n for last character in a word
             y = [self.char_lstm(packed)[1][0].squeeze(0) for packed in y]
             # pad to match dimensionality of word_lstm
-            y = pad_sequence(y, batch_first=True) 
+            y = pad_sequence(y, batch_first=True)
 
             # return last/first item in forward/backward sequence
             # tensor is of shape (B, 1, 2*hidden_dim)
             return (
-                torch.cat((x[:, -1, :int(x.shape[-1]/2)], x[:, 0, int(x.shape[-1]/2):]), -1)
+                torch.cat(
+                    (x[:, -1, : int(x.shape[-1] / 2)], x[:, 0, int(x.shape[-1] / 2) :]),
+                    -1,
+                )
                 .unsqueeze(1)
                 .permute(1, 0, 2),
-                y, 
+                y,
             )
 
     class Decoder(nn.Module):
@@ -171,7 +170,9 @@ class Seq2Seq(nn.Module):
             outputs = []
 
             for i in range(max_len):
-                output, hidden = self.forward_step(hidden, inputs, chars_encoded[:,i,:])
+                output, hidden = self.forward_step(
+                    hidden, inputs, chars_encoded[:, i, :]
+                )
                 outputs.append(output)
 
                 if targets is not None:
@@ -403,15 +404,17 @@ def train_epoch(
         words = batch["words"].to(model.device)
         chars = batch["chars"]
         tags = batch["tags"].to(model.device)
-        tags_num = batch["tags_num"].to(model.device)
+        words_num = batch["words_num"].to(model.device)
 
-        max_tags_num = torch.max(tags_num)
-        mask = torch.arange(max_tags_num, device=model.device).expand(
-            len(tags_num), max_tags_num
-        ) < tags_num.unsqueeze(1)
+        max_words_num = torch.max(words_num)
+        mask = torch.arange(max_words_num, device=model.device).expand(
+            len(words_num), max_words_num
+        ) < words_num.unsqueeze(1)
 
         # Run inference
         y_hat = model(words, batch["words_num"].to(model.device), chars, tags)
+        print(f" w:{words.shape}, c:{len(chars)}, t:{tags.shape}, yh:{y_hat.shape}")
+
         loss = loss_fn(y_hat[mask], tags[mask])
 
         # Update params
@@ -438,13 +441,13 @@ def train_epoch(
             }
         )
 
-    # save checkpoint
-    torch.save(
-        {
-            "epoch": model.epoch,
-            "model_state_dict": model.state_dict(),
-            "optimizer_state_dict": optim.state_dict(),
-            "loss": loss.item(),
-        },
-        f"tagger.{model.epoch}.pt",
-    )
+    # # save checkpoint
+    # torch.save(
+    #     {
+    #         "epoch": model.epoch,
+    #         "model_state_dict": model.state_dict(),
+    #         "optimizer_state_dict": optim.state_dict(),
+    #         "loss": loss.item(),
+    #     },
+    #     f"tagger.{model.epoch}.pt",
+    # )

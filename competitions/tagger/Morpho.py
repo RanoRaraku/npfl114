@@ -33,24 +33,24 @@ class Factor:
     char_mapping: Dict
 
     def __init__(self) -> None:
-        self.strings = []
+        self.words = []
 
     def finalize(self, dev: Optional[Any] = None) -> None:
-        additional_words = ["<BOS>", "<EOS>"]
-        word_vocab = additional_words + [
-            string for sentence in self.strings for string in sentence
+        self.chars = [
+            [[char for char in word] for word in sentence] + [["<EOS>"]]
+            for sentence in self.words
         ]
         char_vocab = [
-            char for sentence in self.strings for string in sentence for char in string
+            char for sentence in self.chars for word in sentence for char in word
         ]
 
+        self.words = [sentence + ["<EOS>"] for sentence in self.words]
+        word_vocab = ["<EOS>"] + [word for sentence in self.words for word in sentence]
+
         if dev:
-            word_vocab += [string for sentence in dev.strings for string in sentence]
+            word_vocab += [word for sentence in dev.words for word in sentence]
             char_vocab += [
-                char
-                for sentence in dev.strings
-                for string in sentence
-                for char in string
+                char for sentence in dev.chars for word in sentence for char in word
             ]
 
         self.char_mapping = {k: v for v, k in enumerate(sorted(set(char_vocab)))}
@@ -58,21 +58,16 @@ class Factor:
 
 
 class CustomDataset(Dataset):
-    """
-    ToDo:
-    1) <EOS> to every sentence for encoder
-    """
+    """ """
 
     def __init__(
         self,
         data_file: BinaryIO,
         dev: Optional[Any] = None,
         max_sentences: Optional[int] = None,
-        add_sos_eos: bool = False,
     ):
         # Create factors
         self._factors = Factor(), Factor(), Factor()
-        self.add_sos_eos = add_sos_eos
 
         # Load the data
         self._size = 0
@@ -82,13 +77,13 @@ class CustomDataset(Dataset):
             if line:
                 if not in_sentence:
                     for factor in self._factors:
-                        factor.strings.append([])
+                        factor.words.append([])
                     self._size += 1
 
                 columns = line.split("\t")
                 assert len(columns) == len(self._factors)
                 for column, factor in zip(columns, self._factors):
-                    factor.strings[-1].append(column)
+                    factor.words[-1].append(column)
                 in_sentence = True
             else:
                 in_sentence = False
@@ -102,19 +97,19 @@ class CustomDataset(Dataset):
         self.unique_forms = len(self.forms.word_mapping)
         self.unique_chars = len(self.forms.char_mapping)
         self.unique_tags = len(self.tags.word_mapping)
+        self.words_eos = self.forms.word_mapping["<EOS>"]
+        self.chars_eos = self.forms.char_mapping["<EOS>"]
+        self.tags_eos = self.tags.word_mapping["<EOS>"]
 
     def __getitem__(self, index: int) -> Tuple[Tensor, Tensor]:
         words = tensor(
-            [self.forms.word_mapping[word] for word in self.forms.strings[index]]
+            [self.forms.word_mapping[word] for word in self.forms.words[index]]
         ).to(torch.long)
         chars = [
-            torch.LongTensor([self.forms.char_mapping[char] for char in word])
-            for word in self.forms.strings[index]
+            torch.LongTensor([self.forms.char_mapping[c] for c in w])
+            for w in self.forms.chars[index]
         ]
-        tags = tensor(
-            [self.tags.word_mapping[tag] for tag in self.tags.strings[index]]
-            + [self.tags.word_mapping["<EOS>"]]
-        )
+        tags = tensor([self.tags.word_mapping[tag] for tag in self.tags.words[index]])
 
         return words, chars, tags
 
@@ -137,16 +132,21 @@ class CustomDataset(Dataset):
     def tags(self) -> Factor:
         return self._factors[2]
 
-    @staticmethod
-    def collate(samples):
+    def collate(self, samples):
         words, chars, tags = zip(*samples)
         words_num = tensor(list(map(len, words))).to(torch.int64)
+        max_len = torch.max(words_num).item()
+        chars = [
+            ct + [torch.LongTensor([self.chars_eos]) for _ in range(max_len - wn)]
+            for ct, wn in zip(chars, words_num)
+        ]
         return {
-            "words": pad_sequence(words, batch_first=True),
+            "words": pad_sequence(
+                words, batch_first=True, padding_value=self.words_eos
+            ),
             "words_num": words_num,
             "chars": chars,
-            "tags": pad_sequence(tags, batch_first=True),
-            "tags_num": words_num + 1,
+            "tags": pad_sequence(tags, batch_first=True, padding_value=self.tags_eos),
         }
 
     def to_dataloader(
@@ -169,7 +169,7 @@ class MorphoDataset:
     train: CustomDataset
     dev: CustomDataset
 
-    def __init__(self, dataset, max_sentences=None, add_sos_eos=False):
+    def __init__(self, dataset, max_sentences=None):
         path = "{}.zip".format(dataset)
         if not os.path.exists(path):
             print("Missing dataset {}...".format(dataset), file=sys.stderr)
@@ -187,7 +187,6 @@ class MorphoDataset:
                             dataset_file,
                             dev=self.dev if dataset == "train" else None,
                             max_sentences=max_sentences,
-                            add_sos_eos=add_sos_eos,
                         ),
                     )
 
