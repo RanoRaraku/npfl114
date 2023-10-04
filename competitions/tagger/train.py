@@ -5,7 +5,7 @@ import torch.nn as nn
 import wandb
 from torch.optim.lr_scheduler import StepLR
 
-from model import Seq2Seq, Seq2SeqAttn, SimpleRNN, train_epoch
+from model import Seq2Seq, Seq2SeqAtt, SimpleRNN, train_epoch
 from Morpho import MorphoDataset
 
 morpho = MorphoDataset("czech_pdt")
@@ -35,7 +35,6 @@ seq2seq_args = {
     "model": "Seq2Seq",
     "we_dim": 32,
     "encoder_hidden_size": 64,
-    "decoder_hidden_size": 64,
     "attention_size": 48,
     "word_encoder_layers": 1,
     "char_encoder_layers": 1,
@@ -50,7 +49,8 @@ seq2seq_args = {
 
 args = seq2seq_args
 # model = SimpleRNN(args).to(args["device"])
-model = Seq2Seq(args).to(args["device"])
+# model = Seq2Seq(args).to(args["device"])
+model = Seq2SeqAtt(args).to(args["device"])
 
 
 optim = torch.optim.AdamW(model.parameters())

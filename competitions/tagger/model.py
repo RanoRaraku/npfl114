@@ -202,10 +202,17 @@ class Seq2Seq(nn.Module):
         return decoded
 
 
-class Seq2SeqAttn(nn.Module):
+class Seq2SeqAtt(nn.Module):
     class Encoder(nn.Module):
+        """
+        TN: character encoded pricitam ku kazdemu slovu ale ked to vraciam ako
+        vystup encoderu tak mi chybaju pre ine prve a posledne slovo
+        TN: pridat <EOS> na koniec a spravne matchovat pri loss calc
+        """
+
         def __init__(self, args):
-            super(Seq2SeqAttn.Encoder, self).__init__()
+            super(Seq2SeqAtt.Encoder, self).__init__()
+            self.args = args
             self.device = args["device"]
 
             self.word_embedd = nn.Embedding(args["word_vocab_size"], args["we_dim"])
@@ -249,101 +256,99 @@ class Seq2SeqAttn(nn.Module):
             # pad to match dimensionality of word_lstm
             y = pad_sequence(y, batch_first=True)
 
+            # return all items as (B,T,C)-dims
             z = x + y
-
-            # tensor is of shape (B, T, 2*hidden_dim)
             return z
 
     class BahdanauAttention(nn.Module):
         def __init__(self, args):
-            super(Seq2SeqAttn.BahdanauAttention, self).__init__()
+            super(Seq2SeqAtt.BahdanauAttention, self).__init__()
             self.U = nn.Linear(2 * args["encoder_hidden_size"], args["attention_size"])
             self.W = nn.Linear(2 * args["encoder_hidden_size"], args["attention_size"])
             self.V = nn.Linear(args["attention_size"], 1, bias=False)
 
-        def forward(self, encoder_outputs, decoder_hidden):
-            e = self.V(torch.tanh(self.U(encoder_outputs) + self.W(decoder_hidden)))
-            alpha = nn.functional.softmax(e, -1)
-            c = torch.bmm(alpha, encoder_outputs)
-            return c
+        def forward(self, query, keys):
+            # query: decoder_hidden teda vektor
+            # keys: encoder_ouuputs teda matica
+            e = self.V(torch.tanh(self.W(query) + self.U(keys)))
+            alpha = nn.functional.softmax(e, 1).permute(0, 2, 1)
+            c = torch.bmm(alpha, keys)
+            return c, alpha
 
     class Decoder(nn.Module):
-        """
-        1) Inicializovat dekoder poslednym stavom enkoderu
-        """
+        """ """
 
         def __init__(self, args):
-            super(Seq2SeqAttn.Decoder, self).__init__()
+            super(Seq2SeqAtt.Decoder, self).__init__()
             self.device = args["device"]
 
             self.embedding = nn.Embedding(args["word_vocab_size"], args["we_dim"])
-            self.attention = Seq2SeqAttn.BahdanauAttention(args)
+            self.attention = Seq2SeqAtt.BahdanauAttention(args)
             self.gru = nn.GRU(
-                input_size=args["we_dim"],
-                hidden_size=args["decoder_hidden_size"],
+                input_size=args["we_dim"] + 2 * args["encoder_hidden_size"],
+                hidden_size=2 * args["encoder_hidden_size"],
                 num_layers=1,
                 batch_first=True,
                 dropout=args["dropout"],
                 bidirectional=False,
             )
-            self.out = nn.Linear(args["decoder_hidden_size"], args["num_classes"])
+            self.out = nn.Linear(2 * args["encoder_hidden_size"], args["num_classes"])
 
-        def forward_step(self, encoder_outputs, decoder_hidden, decoder_inputs):
-            """ """
-            x = self.embedding(decoder_inputs)
-            c = self.attention(encoder_outputs, decoder_hidden)
-            x, h = self.gru(torch.cat((x, c), dim=-1), decoder_hidden.permute(1, 0, 2))
+        def forward_step(self, decoder_input, decoder_hidden, encoder_outputs):
+            x = self.embedding(decoder_input)
+            c, att = self.attention(decoder_hidden.permute(1, 0, 2), encoder_outputs)
+            x, h = self.gru(torch.cat((x, c), -1), decoder_hidden)
             x = self.out(x)
-            return x, h
+            return x, h, att
 
-        def forward(self, encoder_outputs, inputs_num, targets=None):
+        def forward(self, encoder_outputs, words_num, targets=None):
             """
-
-            1) Init decoder h_0 to encoder output
-            2) Word->Tag is 1:1 mapping, use this info to setup max_len
-            3)
+            Word->Tag is 1:1 mapping, use this info to setup output size.
             """
-            decoder_hidden = encoder_outputs
+            decoder_hidden = encoder_outputs[:, -1, :].unsqueeze(0)
             batch_size = encoder_outputs.size(0)
-            max_len = torch.max(inputs_num).item()
-            decoder_inputs = torch.zeros(
+            max_len = torch.max(words_num).item()
+            decoder_input = torch.zeros(
                 batch_size, 1, dtype=torch.long, device=self.device
             )
-            decoder_outputs = []
+            attentions, decoder_outputs = [], []
 
             for i in range(max_len):
-                output, decoder_hidden = self.forward_step(
-                    encoder_outputs, decoder_hidden, decoder_inputs
+                decoder_output, decoder_hidden, attention = self.forward_step(
+                    decoder_input, decoder_hidden, encoder_outputs
                 )
-                decoder_outputs.append(output)
+                decoder_outputs.append(decoder_output)
+                attentions.append(attention)
 
                 if targets is not None:
                     # Teacher forcing: Feed the target as the next input
-                    decoder_inputs = targets[:, i].unsqueeze(1)  # Teacher forcing
+                    decoder_input = targets[:, i].unsqueeze(1)  # Teacher forcing
                 else:
                     # Without teacher forcing: use its own predictions as the next input
-                    _, topi = output.topk(1)
-                    decoder_inputs = topi.squeeze(
+                    _, topi = decoder_output.topk(1)
+                    decoder_input = topi.squeeze(
                         -1
                     ).detach()  # detach from history as input
 
             decoder_outputs = torch.cat(decoder_outputs, dim=1)
+            attentions = torch.cat(attentions, dim=1)
+
             return decoder_outputs
 
     def __init__(self, args):
-        super(Seq2SeqAttn, self).__init__()
+        super(Seq2SeqAtt, self).__init__()
         self.epoch = 0
         self.args = args
         self.device = args["device"]
 
-        self.encoder = Seq2SeqAttn.Encoder(args)
-        self.decoder = Seq2SeqAttn.Decoder(args)
+        self.encoder = Seq2SeqAtt.Encoder(args)
+        self.decoder = Seq2SeqAtt.Decoder(args)
 
     def forward(self, words, words_num, chars, targets=None):
-        encoded = self.encoder(words, words_num, chars)
-        decoded = self.decoder(encoded, words_num, targets)
+        encoder_outputs = self.encoder(words, words_num, chars)
+        decoder_ouputs = self.decoder(encoder_outputs, words_num, targets)
 
-        return decoded
+        return decoder_ouputs
 
 
 def eval_accuracy(model, dloader, loss_fn: Optional[Any] = None):
