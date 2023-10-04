@@ -310,7 +310,7 @@ class Seq2SeqAtt(nn.Module):
             max_len = torch.max(words_num).item()
             decoder_input = torch.zeros(
                 batch_size, 1, dtype=torch.long, device=self.device
-            )
+            ).contiguous()
             attentions, decoder_outputs = [], []
 
             for i in range(max_len):

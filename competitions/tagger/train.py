@@ -65,5 +65,4 @@ scheduler = StepLR(optim, step_size=1, gamma=0.5)
 wandb = None
 for _ in range(seq2seq_args["epochs"]):
     train_epoch(model, train_dloader, dev_dloader, loss_fn, optim, scheduler, wandb)
-
 # wandb.finish()
