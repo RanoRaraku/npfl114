@@ -202,7 +202,7 @@ class Seq2Seq(nn.Module):
         return decoded
 
 
-class Seq2SeqAtt(nn.Module):
+class Seq2SeqBahAtt(nn.Module):
     class Encoder(nn.Module):
         """
         TN: character encoded pricitam ku kazdemu slovu ale ked to vraciam ako
@@ -211,7 +211,7 @@ class Seq2SeqAtt(nn.Module):
         """
 
         def __init__(self, args):
-            super(Seq2SeqAtt.Encoder, self).__init__()
+            super(Seq2SeqBahAtt.Encoder, self).__init__()
             self.args = args
             self.device = args["device"]
 
@@ -262,7 +262,7 @@ class Seq2SeqAtt(nn.Module):
 
     class BahdanauAttention(nn.Module):
         def __init__(self, args):
-            super(Seq2SeqAtt.BahdanauAttention, self).__init__()
+            super(Seq2SeqBahAtt.BahdanauAttention, self).__init__()
             self.U = nn.Linear(2 * args["encoder_hidden_size"], args["attention_size"])
             self.W = nn.Linear(2 * args["encoder_hidden_size"], args["attention_size"])
             self.V = nn.Linear(args["attention_size"], 1, bias=False)
@@ -276,14 +276,12 @@ class Seq2SeqAtt(nn.Module):
             return c, alpha
 
     class Decoder(nn.Module):
-        """ """
-
         def __init__(self, args):
-            super(Seq2SeqAtt.Decoder, self).__init__()
+            super(Seq2SeqBahAtt.Decoder, self).__init__()
             self.device = args["device"]
 
             self.embedding = nn.Embedding(args["word_vocab_size"], args["we_dim"])
-            self.attention = Seq2SeqAtt.BahdanauAttention(args)
+            self.attention = Seq2SeqBahAtt.BahdanauAttention(args)
             self.gru = nn.GRU(
                 input_size=args["we_dim"] + 2 * args["encoder_hidden_size"],
                 hidden_size=2 * args["encoder_hidden_size"],
@@ -336,13 +334,157 @@ class Seq2SeqAtt(nn.Module):
             return decoder_outputs
 
     def __init__(self, args):
-        super(Seq2SeqAtt, self).__init__()
+        super(Seq2SeqBahAtt, self).__init__()
         self.epoch = 0
         self.args = args
         self.device = args["device"]
 
-        self.encoder = Seq2SeqAtt.Encoder(args)
-        self.decoder = Seq2SeqAtt.Decoder(args)
+        self.encoder = Seq2SeqBahAtt.Encoder(args)
+        self.decoder = Seq2SeqBahAtt.Decoder(args)
+
+    def forward(self, words, words_num, chars, targets=None):
+        encoder_outputs = self.encoder(words, words_num, chars)
+        decoder_ouputs = self.decoder(encoder_outputs, words_num, targets)
+
+        return decoder_ouputs
+
+
+class Seq2SeqLuoAtt(nn.Module):
+    class Encoder(nn.Module):
+        """
+        TN: character encoded pricitam ku kazdemu slovu ale ked to vraciam ako
+        vystup encoderu tak mi chybaju pre ine prve a posledne slovo
+        TN: pridat <EOS> na koniec a spravne matchovat pri loss calc
+        """
+
+        def __init__(self, args):
+            super(Seq2SeqLuoAtt.Encoder, self).__init__()
+            self.args = args
+            self.device = args["device"]
+
+            self.word_embedd = nn.Embedding(args["word_vocab_size"], args["we_dim"])
+            self.word_lstm = nn.LSTM(
+                input_size=args["we_dim"],
+                hidden_size=args["encoder_hidden_size"],
+                num_layers=args["word_encoder_layers"],
+                batch_first=True,
+                dropout=args["dropout"],
+                bidirectional=True,
+            )
+            self.char_embedd = nn.Embedding(args["char_vocab_size"], args["we_dim"])
+            self.char_lstm = nn.LSTM(
+                input_size=args["we_dim"],
+                hidden_size=2 * args["encoder_hidden_size"],
+                num_layers=args["char_encoder_layers"],
+                batch_first=True,
+                dropout=args["dropout"],
+                bidirectional=False,
+            )
+
+        def forward(self, words, words_num, chars):
+            # word LSTM
+            x = self.word_embedd(words)
+            x = pack_padded_sequence(
+                x, words_num.to("cpu"), batch_first=True, enforce_sorted=False
+            )
+            x, _ = self.word_lstm(x)
+            x, _ = pad_packed_sequence(x, batch_first=True)
+
+            # Character LSTM
+            # embedd a word at a time where word is a sequence of characters
+            y = [
+                [self.char_embedd(word.to(self.device)) for word in sent]
+                for sent in chars
+            ]
+            # pack words in sentence into one packed sequence
+            y = [pack_sequence(embeddings, enforce_sorted=False) for embeddings in y]
+            # output hidden state h_n for last character in a word
+            y = [self.char_lstm(packed)[1][0].squeeze(0) for packed in y]
+            # pad to match dimensionality of word_lstm
+            y = pad_sequence(y, batch_first=True)
+
+            # return all items as (B,T,C)-dims
+            z = x + y
+            return z
+
+    class LuongAttention:
+        def __init__(self):
+            super(Seq2SeqLuoAtt.LuongAttention, self).__init__()
+
+        def __call__(self, query, keys):
+            # query: decoder_hidden teda vektor
+            # keys: encoder_ouuputs teda matica
+            e = torch.bmm(query, keys.permute(0, 2, 1))
+            alpha = nn.functional.softmax(e, -1)
+            c = torch.bmm(alpha, keys)
+            return c, alpha
+
+    class Decoder(nn.Module):
+        def __init__(self, args):
+            super(Seq2SeqLuoAtt.Decoder, self).__init__()
+            self.device = args["device"]
+
+            self.embedding = nn.Embedding(args["word_vocab_size"], args["we_dim"])
+            self.attention = Seq2SeqLuoAtt.LuongAttention()
+            self.gru = nn.GRU(
+                input_size=args["we_dim"],
+                hidden_size=2 * args["encoder_hidden_size"],
+                num_layers=1,
+                batch_first=True,
+                dropout=args["dropout"],
+                bidirectional=False,
+            )
+            self.out = nn.Linear(4 * args["encoder_hidden_size"], args["num_classes"])
+
+        def forward_step(self, decoder_input, previous_hidden, encoder_outputs):
+            x = self.embedding(decoder_input)
+            x, h = self.gru(x, previous_hidden.contiguous())
+            c, att_weights = self.attention(x, encoder_outputs)
+            x = self.out(torch.cat((x, c), -1))
+            return x, h, att_weights
+
+        def forward(self, encoder_outputs, words_num, targets=None):
+            """
+            Word->Tag is 1:1 mapping, use this info to setup output size.
+            """
+            decoder_hidden = encoder_outputs[:, -1, :].unsqueeze(0)
+            batch_size = encoder_outputs.size(0)
+            max_len = torch.max(words_num).item()
+            decoder_input = torch.zeros(
+                batch_size, 1, dtype=torch.long, device=self.device
+            )
+            attentions, decoder_outputs = [], []
+
+            for i in range(max_len):
+                decoder_output, decoder_hidden, attention = self.forward_step(
+                    decoder_input, decoder_hidden, encoder_outputs
+                )
+                decoder_outputs.append(decoder_output)
+                attentions.append(attention)
+
+                if targets is not None:
+                    # Teacher forcing: Feed the target as the next input
+                    decoder_input = targets[:, i].unsqueeze(1)  # Teacher forcing
+                else:
+                    # Without teacher forcing: use its own predictions as the next input
+                    _, topi = decoder_output.topk(1)
+                    decoder_input = topi.squeeze(
+                        -1
+                    ).detach()  # detach from history as input
+
+            decoder_outputs = torch.cat(decoder_outputs, dim=1)
+            attentions = torch.cat(attentions, dim=1)
+
+            return decoder_outputs
+
+    def __init__(self, args):
+        super(Seq2SeqLuoAtt, self).__init__()
+        self.epoch = 0
+        self.args = args
+        self.device = args["device"]
+
+        self.encoder = Seq2SeqLuoAtt.Encoder(args)
+        self.decoder = Seq2SeqLuoAtt.Decoder(args)
 
     def forward(self, words, words_num, chars, targets=None):
         encoder_outputs = self.encoder(words, words_num, chars)
@@ -424,6 +566,8 @@ def train_epoch(
         optim.zero_grad()
         loss.backward()
         optim.step()
+
+        exit()
 
         if logger is not None:
             logger.log({"train_loss": loss.item()})

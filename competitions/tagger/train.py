@@ -5,7 +5,7 @@ import torch.nn as nn
 import wandb
 from torch.optim.lr_scheduler import StepLR
 
-from model import Seq2Seq, Seq2SeqAtt, SimpleRNN, train_epoch
+from model import Seq2Seq, Seq2SeqBahAtt, Seq2SeqLuoAtt, SimpleRNN, train_epoch
 from Morpho import MorphoDataset
 
 morpho = MorphoDataset("czech_pdt")
@@ -50,7 +50,7 @@ seq2seq_args = {
 args = seq2seq_args
 # model = SimpleRNN(args).to(args["device"])
 # model = Seq2Seq(args).to(args["device"])
-model = Seq2SeqAtt(args).to(args["device"])
+model = Seq2SeqLuoAtt(args).to(args["device"])
 
 
 optim = torch.optim.AdamW(model.parameters())
@@ -63,6 +63,6 @@ scheduler = StepLR(optim, step_size=1, gamma=0.5)
 # run_name =  f"debug-{datetime.datetime.now().strftime('%Y-%m-%d_%H:%M:%S')}"
 # wandb.init(project="tagger_competition", name=run_name, config=args)
 wandb = None
-for _ in range(seq2seq_args["epochs"]):
+for _ in range(args["epochs"]):
     train_epoch(model, train_dloader, dev_dloader, loss_fn, optim, scheduler, wandb)
 # wandb.finish()
