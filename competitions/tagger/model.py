@@ -297,7 +297,7 @@ class Seq2SeqAtt(nn.Module):
         def forward_step(self, decoder_input, decoder_hidden, encoder_outputs):
             x = self.embedding(decoder_input)
             c, att = self.attention(decoder_hidden.permute(1, 0, 2), encoder_outputs)
-            x, h = self.gru(torch.cat((x, c), -1), decoder_hidden)
+            x, h = self.gru(torch.cat((x, c), -1), decoder_hidden.contiguous())
             x = self.out(x)
             return x, h, att
 
@@ -310,7 +310,7 @@ class Seq2SeqAtt(nn.Module):
             max_len = torch.max(words_num).item()
             decoder_input = torch.zeros(
                 batch_size, 1, dtype=torch.long, device=self.device
-            ).contiguous()
+            )
             attentions, decoder_outputs = [], []
 
             for i in range(max_len):
