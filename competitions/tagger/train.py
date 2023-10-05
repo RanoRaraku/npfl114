@@ -63,6 +63,16 @@ scheduler = StepLR(optim, step_size=1, gamma=0.5)
 # run_name =  f"debug-{datetime.datetime.now().strftime('%Y-%m-%d_%H:%M:%S')}"
 # wandb.init(project="tagger_competition", name=run_name, config=args)
 wandb = None
-for _ in range(args["epochs"]):
+for epoch in range(args["epochs"]):
     train_epoch(model, train_dloader, dev_dloader, loss_fn, optim, scheduler, wandb)
 # wandb.finish()
+
+
+torch.save(
+    {
+        "epoch": epoch,
+        "model_state_dict": model.state_dict(),
+        "optimizer_state_dict": optim.state_dict(),
+    },
+    f"tagger.{model.epoch}.pt",
+)
