@@ -411,10 +411,11 @@ class Seq2SeqLuoAtt(nn.Module):
         def __init__(self):
             super(Seq2SeqLuoAtt.LuongAttention, self).__init__()
 
-        def __call__(self, query, keys):
+        def __call__(self, query, keys, mask):
             # query: decoder_hidden teda vektor
             # keys: encoder_ouuputs teda matica
             e = torch.bmm(query, keys.permute(0, 2, 1))
+            e[mask] = float('-inf')
             alpha = nn.functional.softmax(e, -1)
             c = torch.bmm(alpha, keys)
             return c, alpha
@@ -436,14 +437,14 @@ class Seq2SeqLuoAtt(nn.Module):
             )
             self.out = nn.Linear(4 * args["encoder_hidden_size"], args["num_classes"])
 
-        def forward_step(self, decoder_input, previous_hidden, encoder_outputs):
+        def forward_step(self, decoder_input, previous_hidden, encoder_outputs, mask):
             x = self.embedding(decoder_input)
             x, h = self.gru(x, previous_hidden.contiguous())
-            c, att_weights = self.attention(x, encoder_outputs)
+            c, att_weights = self.attention(x, encoder_outputs, mask)
             x = self.out(torch.cat((x, c), -1))
             return x, h, att_weights
 
-        def forward(self, encoder_outputs, words_num, targets=None):
+        def forward(self, encoder_outputs, words_num, mask, targets=None):
             """
             Word->Tag is 1:1 mapping, use this info to setup output size.
             """
@@ -454,10 +455,11 @@ class Seq2SeqLuoAtt(nn.Module):
                 batch_size, 1, dtype=torch.long, device=self.device
             )
             attentions, decoder_outputs = [], []
+            mask = ~mask.unsqueeze(1)
 
             for i in range(max_len):
                 decoder_output, decoder_hidden, attention = self.forward_step(
-                    decoder_input, decoder_hidden, encoder_outputs
+                    decoder_input, decoder_hidden, encoder_outputs, mask
                 )
                 decoder_outputs.append(decoder_output)
                 attentions.append(attention)
@@ -486,9 +488,9 @@ class Seq2SeqLuoAtt(nn.Module):
         self.encoder = Seq2SeqLuoAtt.Encoder(args)
         self.decoder = Seq2SeqLuoAtt.Decoder(args)
 
-    def forward(self, words, words_num, chars, targets=None):
+    def forward(self, words, words_num, chars, mask, targets=None, ):
         encoder_outputs = self.encoder(words, words_num, chars)
-        decoder_ouputs = self.decoder(encoder_outputs, words_num, targets)
+        decoder_ouputs = self.decoder(encoder_outputs, words_num, mask, targets)
 
         return decoder_ouputs
 
@@ -559,7 +561,7 @@ def train_epoch(
         ) < words_num.unsqueeze(1)
 
         # Run inference
-        y_hat = model(words, batch["words_num"].to(model.device), chars, tags)
+        y_hat = model(words, batch["words_num"].to(model.device), chars, mask, tags)
         loss = loss_fn(y_hat[mask], tags[mask])
 
         # Update params
