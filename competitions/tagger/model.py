@@ -595,7 +595,6 @@ def train_epoch(
         if logger is not None:
             logger.log({"train_loss": loss.item()})
 
-        exit()
     model.epoch += 1
 
     if scheduler is not None:
