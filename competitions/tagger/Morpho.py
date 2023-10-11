@@ -35,7 +35,10 @@ class Factor:
     def __init__(self) -> None:
         self.words = []
 
-    def finalize(self, dev: Optional[Any] = None) -> None:
+    def finalize(self, dev: Optional[Any] = None):
+        # some super long senteces, thats suspicious
+        self.words = [s for s in self.words if len(s) < 50]
+
         self.chars = [
             [[char for char in word] for word in sentence] + [["<EOS>"]]
             for sentence in self.words
@@ -56,7 +59,6 @@ class Factor:
         self.char_mapping = {k: v for v, k in enumerate(sorted(set(char_vocab)))}
         self.word_mapping = {k: v for v, k in enumerate(sorted(set(word_vocab)))}
 
-
 class CustomDataset(Dataset):
     """ """
 
@@ -70,7 +72,6 @@ class CustomDataset(Dataset):
         self._factors = Factor(), Factor(), Factor()
 
         # Load the data
-        self._size = 0
         in_sentence = False
         for line in data_file:
             line = line.decode("utf-8").rstrip("\r\n")
@@ -78,7 +79,6 @@ class CustomDataset(Dataset):
                 if not in_sentence:
                     for factor in self._factors:
                         factor.words.append([])
-                    self._size += 1
 
                 columns = line.split("\t")
                 assert len(columns) == len(self._factors)
@@ -93,6 +93,7 @@ class CustomDataset(Dataset):
         # Finalize the mappings
         for i, factor in enumerate(self._factors):
             factor.finalize(dev._factors[i] if dev else None)
+        self._size = len(self.forms.words)
 
         self.unique_forms = len(self.forms.word_mapping)
         self.unique_chars = len(self.forms.char_mapping)
@@ -197,3 +198,7 @@ class MorphoDataset:
         self.dev.tags.char_mapping = self.train.tags.char_mapping
         self.dev.unique_forms = self.train.unique_forms
         self.dev.unique_tags = self.train.unique_tags
+
+
+        # set maximum sequence length
+        self.max_length = max([len(s) for s in self.train.forms.words] + [len(s) for s in self.dev.forms.words])
