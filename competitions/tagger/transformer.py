@@ -27,13 +27,13 @@ class ScaledDotAttention(nn.Module):
         self.Wo = nn.Linear(dv, model_dim, device=device)
         self.device = device
 
-    def forward(self, query, keys, values, mask: bool = False, device="cpu"):
+    def forward(self, query, keys, values, mask: bool = False):
         """
         1) maybe permute keys
         2) maybe permute weights
         """
         scores = torch.bmm(query, keys.permute(0, 2, 1)) / torch.sqrt(self.dk)
-        if mask is not None:
+        if mask:
             T = query.shape[1]
             mask = torch.triu(torch.ones(T, T, dtype=torch.bool, device=self.device), 1)
             scores += -1e12 * mask
