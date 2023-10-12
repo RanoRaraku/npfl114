@@ -6,7 +6,6 @@ import wandb
 from torch.optim.lr_scheduler import StepLR
 
 from model import Seq2Seq, Seq2SeqBahAtt, Seq2SeqLuoAtt, SimpleRNN, train_epoch
-from transformer import Transformer
 from Morpho import MorphoDataset
 
 morpho = MorphoDataset("czech_pdt")
@@ -47,30 +46,9 @@ seq2seq_args = {
     "packed_sequences": True,
     "characters": True,
 }
-transformer_args = {
-    "batch_size": 2,
-    "epochs": 1,
-    "device": "cuda" if torch.cuda.is_available() else "cpu",
-    "dataset": "czech_pdt",
-    "model": "Seq2Seq",
-    "model_dim":512,
-    "max_seq_len": morpho.max_length,
-    "dropout": 0.1,
-    "word_vocab_size": morpho.train.unique_forms,
-    "char_vocab_size": morpho.train.unique_chars,
-    "num_classes": morpho.train.unique_tags,
-    "label_smoothing": 0.1,
-    "packed_sequences": True,
-    "characters": True,
-}
-
-
 args = seq2seq_args
-# model = SimpleRNN(args).to(args["device"])
-# model = Seq2Seq(args).to(args["device"])
+
 model = Seq2SeqLuoAtt(args).to(args["device"])
-
-
 optim = torch.optim.AdamW(model.parameters())
 loss_fn = nn.CrossEntropyLoss(label_smoothing=args["label_smoothing"])
 train_dloader = morpho.train.to_dataloader(args["batch_size"], shuffle=True)
