@@ -53,8 +53,7 @@ class MultiHeadAttention(nn.Module):
         assert dk % heads == 0
         assert dv % heads == 0
 
-        self.att_list = nn.ModuleList()
-        self.att_list.extend(
+        self.att_list = nn.ModuleList(
             [
                 ScaledDotAttention(model_dim, int(dk / heads), int(dv / heads), device)
                 for _ in range(heads)
@@ -137,14 +136,13 @@ class MultiAttentionProjection(nn.Module):
         assert dk % heads == 0
         assert dv % heads == 0
 
-        self.Wq, self.Wk, self.Wv = nn.ModuleList(), nn.ModuleList(), nn.ModuleList()
-        self.Wq.extend(
+        self.Wq = nn.ModuleList(
             [nn.Linear(model_dim, int(dk / heads), device=device) for _ in range(heads)]
         )
-        self.Wk.extend(
+        self.Wk = nn.ModuleList(
             [nn.Linear(model_dim, int(dk / heads), device=device) for _ in range(heads)]
         )
-        self.Wv.extend(
+        self.Wv = nn.ModuleList(
             [nn.Linear(model_dim, int(dv / heads), device=device) for _ in range(heads)]
         )
 
@@ -183,19 +181,21 @@ class Encoder(nn.Module):
 
 
 class Decoder(nn.Module):
-    def __init__(self, model_dim, keys_dim, values_dim, device="cpu") -> None:
+    def __init__(self, model_dim, keys_dim, values_dim, heads=1, device="cpu") -> None:
         super(Decoder, self).__init__()
         self.dk = keys_dim
         self.dv = values_dim
 
-        self.selfatt_projection = AttentionProjection(
-            model_dim, self.dk, self.dv, device
+        self.selfatt_projection = MultiAttentionProjection(
+            model_dim, self.dk, self.dv, heads, device
         )
-        self.selfatt = ScaledDotAttention(model_dim, self.dk, self.dv, device)
+        self.selfatt = MultiHeadAttention(model_dim, self.dk, self.dv, heads, device)
         self.selfatt_norm = nn.LayerNorm(model_dim, device=device)
 
-        self.edatt_projection = AttentionProjection(model_dim, self.dk, self.dv, device)
-        self.edatt = ScaledDotAttention(model_dim, self.dk, self.dv, device)
+        self.edatt_projection = MultiAttentionProjection(
+            model_dim, self.dk, self.dv, heads, device
+        )
+        self.edatt = MultiHeadAttention(model_dim, self.dk, self.dv, heads, device)
         self.edatt_norm = nn.LayerNorm(model_dim, device=device)
 
         self.ffn = FFN(model_dim, device=device)
@@ -224,6 +224,7 @@ class Transformer(nn.Module):
         self.device = args["device"]
         self.epoch = 0
 
+        # Encoder
         self.inputs_embedding = nn.Embedding(
             args["word_vocab_size"], args["model_dim"], device=self.device
         )
@@ -243,16 +244,22 @@ class Transformer(nn.Module):
             ]
         )
 
+        # Decoder
         self.outputs_embedding = nn.Embedding(
             args["num_classes"], args["model_dim"], device=self.device
         )
-        self.decoder_stack = nn.ModuleList()
-        for _ in range(args["decoder_stack_size"]):
-            self.decoder_stack.append(
+        self.decoder_stack = nn.ModuleList(
+            [
                 Decoder(
-                    args["model_dim"], args["keys_dim"], args["values_dim"], self.device
+                    args["model_dim"],
+                    args["keys_dim"],
+                    args["values_dim"],
+                    args["heads"],
+                    self.device,
                 )
-            )
+                for _ in range(args["decoder_stack_size"])
+            ]
+        )
 
         self.out = nn.Linear(args["model_dim"], args["num_classes"], device=self.device)
 
