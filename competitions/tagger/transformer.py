@@ -163,7 +163,7 @@ class Transformer(nn.Module):
             args["max_seq_len"], args["model_dim"], self.device
         )
         self.encoder_stack = nn.Sequential(
-            *[Encoder(args["model_dim"], self.device) for _ in range(args["encoder_stack_size"])], device=self.device
+            *[Encoder(args["model_dim"], self.device) for _ in range(args["encoder_stack_size"])]
         )
 
         self.outputs_embedding = nn.Embedding(args["num_classes"], args["model_dim"], device=self.device)
