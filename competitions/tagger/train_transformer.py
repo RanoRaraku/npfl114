@@ -11,12 +11,14 @@ from transformer import Transformer, train_epoch
 morpho = MorphoDataset("czech_pdt")
 
 args = {
-    "batch_size": 2,
-    "epochs": 1,
+    "batch_size": 128,
+    "epochs": 5,
     "device": "cuda" if torch.cuda.is_available() else "cpu",
     "dataset": "czech_pdt",
     "model": "transformer",
     "model_dim": 512,
+    "keys_dim": 64,
+    "values_dim": 64,
     "max_seq_len": morpho.max_length,
     "encoder_stack_size": 2,
     "decoder_stack_size": 2,
@@ -34,6 +36,9 @@ train_dloader = morpho.train.to_dataloader(args["batch_size"], shuffle=True)
 dev_dloader = morpho.dev.to_dataloader(args["batch_size"], shuffle=False)
 scheduler = StepLR(optim, step_size=1, gamma=0.5)
 
-
+# wandb.login()
+# run_name =  datetime.datetime.now().strftime("%Y-%m-%d_%H:%M:%S")
+# wandb.init(project="tagger_competition", name=run_name, config=args)
 for epoch in range(args["epochs"]):
     train_epoch(model, train_dloader, dev_dloader, loss_fn, optim, scheduler, None)
+# wandb.finish()

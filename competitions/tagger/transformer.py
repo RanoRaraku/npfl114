@@ -24,7 +24,7 @@ class ScaledDotAttention(nn.Module):
     def __init__(self, model_dim, dk, dv, device="cpu"):
         super(ScaledDotAttention, self).__init__()
         self.dk = torch.tensor(dk, dtype=torch.float32, device=device)
-        self.Wo = nn.Linear(dv, model_dim,device=device)
+        self.Wo = nn.Linear(dv, model_dim, device=device)
         self.device = device
 
     def forward(self, query, keys, values, mask: bool = False, device="cpu"):
@@ -75,7 +75,7 @@ class PositionEncoding(nn.Module):
             k_dim = 1
             i_dim = 2
 
-        assert x.shape[k_dim] <= self.max_seq_len 
+        assert x.shape[k_dim] <= self.max_seq_len
         assert x.shape[i_dim] == self.dim
         xk_dim = x.shape[k_dim]
 
@@ -98,12 +98,14 @@ class AttentionProjection(nn.Module):
 
 
 class Encoder(nn.Module):
-    def __init__(self, model_dim, device="cpu") -> None:
+    def __init__(self, model_dim, keys_dim, values_dim, device="cpu") -> None:
         super(Encoder, self).__init__()
-        self.dk = 64
-        self.dv = 64
+        self.dk = keys_dim
+        self.dv = values_dim
 
-        self.selfatt_projection = AttentionProjection(model_dim, self.dk, self.dv, device)
+        self.selfatt_projection = AttentionProjection(
+            model_dim, self.dk, self.dv, device
+        )
         self.selfatt = ScaledDotAttention(model_dim, self.dk, self.dv, device)
         self.selfatt_norm = nn.LayerNorm(model_dim, device=device)
         self.ffn = FFN(model_dim, device=device)
@@ -120,12 +122,14 @@ class Encoder(nn.Module):
 
 
 class Decoder(nn.Module):
-    def __init__(self, model_dim, device="cpu") -> None:
+    def __init__(self, model_dim, keys_dim, values_dim, device="cpu") -> None:
         super(Decoder, self).__init__()
-        self.dk = 64
-        self.dv = 64
+        self.dk = keys_dim
+        self.dv = values_dim
 
-        self.selfatt_projection = AttentionProjection(model_dim, self.dk, self.dv, device)
+        self.selfatt_projection = AttentionProjection(
+            model_dim, self.dk, self.dv, device
+        )
         self.selfatt = ScaledDotAttention(model_dim, self.dk, self.dv, device)
         self.selfatt_norm = nn.LayerNorm(model_dim, device=device)
 
@@ -159,18 +163,31 @@ class Transformer(nn.Module):
         self.device = args["device"]
         self.epoch = 0
 
-        self.inputs_embedding = nn.Embedding(args["word_vocab_size"], args["model_dim"], device=self.device)
+        self.inputs_embedding = nn.Embedding(
+            args["word_vocab_size"], args["model_dim"], device=self.device
+        )
         self.position_encoding = PositionEncoding(
             args["max_seq_len"], args["model_dim"], self.device
         )
         self.encoder_stack = nn.Sequential(
-            *[Encoder(args["model_dim"], self.device) for _ in range(args["encoder_stack_size"])]
+            *[
+                Encoder(
+                    args["model_dim"], args["keys_dim"], args["values_dim"], self.device
+                )
+                for _ in range(args["encoder_stack_size"])
+            ]
         )
 
-        self.outputs_embedding = nn.Embedding(args["num_classes"], args["model_dim"], device=self.device)
+        self.outputs_embedding = nn.Embedding(
+            args["num_classes"], args["model_dim"], device=self.device
+        )
         self.decoder_stack = nn.ModuleList()
         for _ in range(args["decoder_stack_size"]):
-            self.decoder_stack.append(Decoder(args["model_dim"], self.device))
+            self.decoder_stack.append(
+                Decoder(
+                    args["model_dim"], args["keys_dim"], args["values_dim"], self.device
+                )
+            )
 
         self.out = nn.Linear(args["model_dim"], args["num_classes"], device=self.device)
 

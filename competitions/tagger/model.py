@@ -4,12 +4,8 @@ from typing import Any, Optional
 
 import torch
 import torch.nn as nn
-from torch.nn.utils.rnn import (
-    pack_padded_sequence,
-    pack_sequence,
-    pad_packed_sequence,
-    pad_sequence,
-)
+from torch.nn.utils.rnn import (pack_padded_sequence, pack_sequence,
+                                pad_packed_sequence, pad_sequence)
 
 
 class SimpleRNN(nn.Module):
