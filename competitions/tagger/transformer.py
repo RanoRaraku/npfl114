@@ -196,15 +196,17 @@ def eval_accuracy(model, dloader, loss_fn: Optional[Any] = None):
     model.eval()
     total_loss, total_samples, corr = 0, 0, 0
     for batch in dloader:
-        words_num = batch["words_num"].to(model.device)
         words = batch["words"].to(model.device)
         tags = batch["tags"].to(model.device)
+        words_num = batch["words_num"].to(model.device)
 
-        max_seq_len = torch.max(words_num)
-        mask = torch.arange(max_seq_len, device=model.device).expand(
-            len(words_num), max_seq_len
+        max_words_num = torch.max(words_num)
+        mask = torch.arange(max_words_num, device=model.device).expand(
+            len(words_num), max_words_num
         ) < words_num.unsqueeze(1)
-        y_hat = model(words, words_num)
+
+        # Run inference
+        y_hat = model(words, tags)
         corr += torch.sum(torch.argmax(y_hat[mask], dim=-1) == tags[mask])
         total_samples += torch.sum(words_num)
 

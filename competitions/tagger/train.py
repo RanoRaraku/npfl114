@@ -55,13 +55,13 @@ train_dloader = morpho.train.to_dataloader(args["batch_size"], shuffle=True)
 dev_dloader = morpho.dev.to_dataloader(args["batch_size"], shuffle=False)
 scheduler = StepLR(optim, step_size=1, gamma=0.5)
 
-# wandb.login()
-# run_name =  f"debug-{datetime.datetime.now().strftime('%Y-%m-%d_%H:%M:%S')}"
-# wandb.init(project="tagger_competition", name=run_name, config=args)
+wandb.login()
+run_name =  f"debug-{datetime.datetime.now().strftime('%Y-%m-%d_%H:%M:%S')}"
+wandb.init(project="tagger_competition", name=run_name, config=args)
 wandb = None
 for epoch in range(args["epochs"]):
-    train_epoch(model, train_dloader, dev_dloader, loss_fn, optim, scheduler, wandb)
-# wandb.finish()
+    train_epoch(model, train_dloader, dev_dloader, loss_fn, optim, scheduler, None)
+wandb.finish()
 
 
 torch.save(
