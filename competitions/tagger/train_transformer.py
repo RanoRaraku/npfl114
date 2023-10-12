@@ -15,7 +15,7 @@ args = {
     "epochs": 1,
     "device": "cuda" if torch.cuda.is_available() else "cpu",
     "dataset": "czech_pdt",
-    "model": "Seq2Seq",
+    "model": "transformer",
     "model_dim": 512,
     "max_seq_len": morpho.max_length,
     "encoder_stack_size": 2,
@@ -35,6 +35,5 @@ dev_dloader = morpho.dev.to_dataloader(args["batch_size"], shuffle=False)
 scheduler = StepLR(optim, step_size=1, gamma=0.5)
 
 
-wandb = None
 for epoch in range(args["epochs"]):
-    train_epoch(model, train_dloader, dev_dloader, loss_fn, optim, scheduler, wandb)
+    train_epoch(model, train_dloader, dev_dloader, loss_fn, optim, scheduler, None)

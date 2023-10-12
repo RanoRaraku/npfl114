@@ -157,6 +157,7 @@ class Transformer(nn.Module):
 
         self.args = args
         self.device = args["device"]
+        self.epoch = 0
 
         self.inputs_embedding = nn.Embedding(args["word_vocab_size"], args["model_dim"], device=self.device)
         self.position_encoding = PositionEncoding(
