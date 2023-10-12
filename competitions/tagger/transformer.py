@@ -6,12 +6,12 @@ import torch.nn as nn
 
 
 class FFN(nn.Module):
-    def __init__(self, input_dim, hidden_dim=2048) -> None:
+    def __init__(self, input_dim, hidden_dim=2048, device="cpu") -> None:
         super(FFN, self).__init__()
 
-        self.fc1 = nn.Linear(input_dim, hidden_dim)
+        self.fc1 = nn.Linear(input_dim, hidden_dim, device=device)
         self.relu = nn.ReLU()
-        self.fc2 = nn.Linear(hidden_dim, input_dim)
+        self.fc2 = nn.Linear(hidden_dim, input_dim, device=device)
 
     def forward(self, x):
         x = self.fc1(x)
