@@ -243,8 +243,6 @@ def train_epoch(
         loss.backward()
         optim.step()
 
-        exit()
-
         if logger is not None:
             logger.log({"train_loss": loss.item()})
 
