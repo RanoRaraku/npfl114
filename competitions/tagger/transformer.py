@@ -27,19 +27,53 @@ class ScaledDotAttention(nn.Module):
         self.Wo = nn.Linear(dv, model_dim, device=device)
         self.device = device
 
-    def forward(self, query, keys, values, mask: bool = False):
-        """
-        1) maybe permute keys
-        2) maybe permute weights
-        """
+    def forward(
+        self,
+        query: torch.Tensor,
+        keys: torch.Tensor,
+        values: torch.Tensor,
+        apply_mask: bool = False,
+        apply_Wo: bool = True,
+    ):
         scores = torch.bmm(query, keys.permute(0, 2, 1)) / torch.sqrt(self.dk)
-        if mask:
+        if apply_mask:
             T = query.shape[1]
             mask = torch.triu(torch.ones(T, T, dtype=torch.bool, device=self.device), 1)
             scores += -1e12 * mask
         weights = nn.functional.softmax(scores, -1)
         context = torch.bmm(weights, values)
-        context = self.Wo(context)
+        if apply_Wo:
+            context = self.Wo(context)
+        return context
+
+
+class MultiHeadAttention(nn.Module):
+    def __init__(self, model_dim, dk, dv, heads, device="cpu"):
+        super(MultiHeadAttention, self).__init__()
+        assert dk % heads == 0
+        assert dv % heads == 0
+
+        self.att_list = nn.ModuleList()
+        self.att_list.extend(
+            [
+                ScaledDotAttention(model_dim, int(dk / heads), int(dv / heads), device)
+                for _ in range(heads)
+            ]
+        )
+        self.Wo = nn.Linear(dv, model_dim, device=device)
+
+    def forward(
+        self,
+        query: list[torch.Tensor],
+        keys: list[torch.Tensor],
+        values: list[torch.Tensor],
+        mask: bool = False,
+    ):
+        context = [
+            att(q, k, v, mask, False)
+            for att, q, k, v in zip(self.att_list, query, keys, values)
+        ]
+        context = self.Wo(torch.cat(context, dim=-1))
         return context
 
 
@@ -97,16 +131,43 @@ class AttentionProjection(nn.Module):
         return q, K, V
 
 
-class Encoder(nn.Module):
-    def __init__(self, model_dim, keys_dim, values_dim, device="cpu") -> None:
-        super(Encoder, self).__init__()
-        self.dk = keys_dim
-        self.dv = values_dim
+class MultiAttentionProjection(nn.Module):
+    def __init__(self, model_dim, dk, dv, heads, device="cpu"):
+        super(MultiAttentionProjection, self).__init__()
+        assert dk % heads == 0
+        assert dv % heads == 0
 
-        self.selfatt_projection = AttentionProjection(
-            model_dim, self.dk, self.dv, device
+        self.Wq, self.Wk, self.Wv = nn.ModuleList(), nn.ModuleList(), nn.ModuleList()
+        self.Wq.extend(
+            [nn.Linear(model_dim, int(dk / heads), device=device) for _ in range(heads)]
         )
-        self.selfatt = ScaledDotAttention(model_dim, self.dk, self.dv, device)
+        self.Wk.extend(
+            [nn.Linear(model_dim, int(dk / heads), device=device) for _ in range(heads)]
+        )
+        self.Wv.extend(
+            [nn.Linear(model_dim, int(dv / heads), device=device) for _ in range(heads)]
+        )
+
+    def forward(self, x, y=None, z=None):
+        query, keys, values = [], [], []
+        for Wq, Wk, Wv in zip(self.Wq, self.Wk, self.Wv):
+            query.append(Wq(x))
+            keys.append(Wk(y if y is not None else x))
+            values.append(Wv(z if z is not None else (y if y is not None else x)))
+
+        return query, keys, values
+
+
+class Encoder(nn.Module):
+    def __init__(self, model_dim, keys_dim, values_dim, heads=1, device="cpu") -> None:
+        super(Encoder, self).__init__()
+
+        self.selfatt_projection = MultiAttentionProjection(
+            model_dim, keys_dim, values_dim, heads, device
+        )
+        self.selfatt = MultiHeadAttention(
+            model_dim, keys_dim, values_dim, heads, device
+        )
         self.selfatt_norm = nn.LayerNorm(model_dim, device=device)
         self.ffn = FFN(model_dim, device=device)
         self.ffn_norm = nn.LayerNorm(model_dim, device=device)
@@ -172,7 +233,11 @@ class Transformer(nn.Module):
         self.encoder_stack = nn.Sequential(
             *[
                 Encoder(
-                    args["model_dim"], args["keys_dim"], args["values_dim"], self.device
+                    args["model_dim"],
+                    args["keys_dim"],
+                    args["values_dim"],
+                    args["heads"],
+                    self.device,
                 )
                 for _ in range(args["encoder_stack_size"])
             ]

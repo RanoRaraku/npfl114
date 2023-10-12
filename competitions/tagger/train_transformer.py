@@ -16,6 +16,7 @@ args = {
     "device": "cuda" if torch.cuda.is_available() else "cpu",
     "dataset": "czech_pdt",
     "model": "transformer",
+    "heads": 2,
     "model_dim": 512,
     "keys_dim": 64,
     "values_dim": 64,
