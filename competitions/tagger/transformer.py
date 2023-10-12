@@ -74,7 +74,7 @@ class PositionEncoding(nn.Module):
             k_dim = 1
             i_dim = 2
 
-        assert x.shape[k_dim] <= self.max_seq_len
+        assert x.shape[k_dim] <= self.max_seq_len 
         assert x.shape[i_dim] == self.dim
         xk_dim = x.shape[k_dim]
 
@@ -159,7 +159,7 @@ class Transformer(nn.Module):
 
         self.inputs_embedding = nn.Embedding(args["word_vocab_size"], args["model_dim"])
         self.position_encoding = PositionEncoding(
-            args["max_seq_len"], args["model_dim"]
+            args["max_seq_len"], args["model_dim"], self.device
         )
         self.encoder_stack = nn.Sequential(
             *[Encoder(args["model_dim"]) for _ in range(args["encoder_stack_size"])]
