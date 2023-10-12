@@ -21,12 +21,13 @@ class FFN(nn.Module):
 
 
 class ScaledDotAttention(nn.Module):
-    def __init__(self, model_dim, dk, dv):
+    def __init__(self, model_dim, dk, dv, device="cpu"):
         super(ScaledDotAttention, self).__init__()
-        self.dk = torch.tensor(dk, dtype=torch.float32)
-        self.Wo = nn.Linear(dv, model_dim)
+        self.dk = torch.tensor(dk, dtype=torch.float32, device=device)
+        self.Wo = nn.Linear(dv, model_dim,device=device)
+        self.device = device
 
-    def forward(self, query, keys, values, mask: bool = False):
+    def forward(self, query, keys, values, mask: bool = False, device="cpu"):
         """
         1) maybe permute keys
         2) maybe permute weights
@@ -34,7 +35,7 @@ class ScaledDotAttention(nn.Module):
         scores = torch.bmm(query, keys.permute(0, 2, 1)) / torch.sqrt(self.dk)
         if mask is not None:
             T = query.shape[1]
-            mask = torch.triu(torch.ones(T, T, dtype=torch.bool), 1)
+            mask = torch.triu(torch.ones(T, T, dtype=torch.bool, device=self.device), 1)
             scores += -1e12 * mask
         weights = nn.functional.softmax(scores, -1)
         context = torch.bmm(weights, values)
@@ -83,11 +84,11 @@ class PositionEncoding(nn.Module):
 
 
 class AttentionProjection(nn.Module):
-    def __init__(self, model_dim, dk, dv):
+    def __init__(self, model_dim, dk, dv, device="cpu"):
         super(AttentionProjection, self).__init__()
-        self.Wq = nn.Linear(model_dim, dk)
-        self.Wk = nn.Linear(model_dim, dk)
-        self.Wv = nn.Linear(model_dim, dv)
+        self.Wq = nn.Linear(model_dim, dk, device=device)
+        self.Wk = nn.Linear(model_dim, dk, device=device)
+        self.Wv = nn.Linear(model_dim, dv, device=device)
 
     def forward(self, x, y=None, z=None):
         q = self.Wq(x)
@@ -97,16 +98,16 @@ class AttentionProjection(nn.Module):
 
 
 class Encoder(nn.Module):
-    def __init__(self, model_dim) -> None:
+    def __init__(self, model_dim, device="cpu") -> None:
         super(Encoder, self).__init__()
         self.dk = 64
         self.dv = 64
 
-        self.selfatt_projection = AttentionProjection(model_dim, self.dk, self.dv)
-        self.selfatt = ScaledDotAttention(model_dim, self.dk, self.dv)
-        self.selfatt_norm = nn.LayerNorm(model_dim)
-        self.ffn = FFN(model_dim)
-        self.ffn_norm = nn.LayerNorm(model_dim)
+        self.selfatt_projection = AttentionProjection(model_dim, self.dk, self.dv, device)
+        self.selfatt = ScaledDotAttention(model_dim, self.dk, self.dv, device)
+        self.selfatt_norm = nn.LayerNorm(model_dim, device=device)
+        self.ffn = FFN(model_dim, device=device)
+        self.ffn_norm = nn.LayerNorm(model_dim, device=device)
 
     def forward(self, x):
         q, K, V = self.selfatt_projection(x)
@@ -119,21 +120,21 @@ class Encoder(nn.Module):
 
 
 class Decoder(nn.Module):
-    def __init__(self, model_dim) -> None:
+    def __init__(self, model_dim, device="cpu") -> None:
         super(Decoder, self).__init__()
         self.dk = 64
         self.dv = 64
 
-        self.selfatt_projection = AttentionProjection(model_dim, self.dk, self.dv)
-        self.selfatt = ScaledDotAttention(model_dim, self.dk, self.dv)
-        self.selfatt_norm = nn.LayerNorm(model_dim)
+        self.selfatt_projection = AttentionProjection(model_dim, self.dk, self.dv, device)
+        self.selfatt = ScaledDotAttention(model_dim, self.dk, self.dv, device)
+        self.selfatt_norm = nn.LayerNorm(model_dim, device=device)
 
-        self.edatt_projection = AttentionProjection(model_dim, self.dk, self.dv)
-        self.edatt = ScaledDotAttention(model_dim, self.dk, self.dv)
-        self.edatt_norm = nn.LayerNorm(model_dim)
+        self.edatt_projection = AttentionProjection(model_dim, self.dk, self.dv, device)
+        self.edatt = ScaledDotAttention(model_dim, self.dk, self.dv, device)
+        self.edatt_norm = nn.LayerNorm(model_dim, device=device)
 
-        self.ffn = FFN(model_dim)
-        self.ffn_norm = nn.LayerNorm(model_dim)
+        self.ffn = FFN(model_dim, device=device)
+        self.ffn_norm = nn.LayerNorm(model_dim, device=device)
 
     def forward(self, inputs, encodings):
         q, K, V = self.selfatt_projection(inputs)
@@ -157,20 +158,20 @@ class Transformer(nn.Module):
         self.args = args
         self.device = args["device"]
 
-        self.inputs_embedding = nn.Embedding(args["word_vocab_size"], args["model_dim"])
+        self.inputs_embedding = nn.Embedding(args["word_vocab_size"], args["model_dim"], device=self.device)
         self.position_encoding = PositionEncoding(
             args["max_seq_len"], args["model_dim"], self.device
         )
         self.encoder_stack = nn.Sequential(
-            *[Encoder(args["model_dim"]) for _ in range(args["encoder_stack_size"])]
+            *[Encoder(args["model_dim"], self.device) for _ in range(args["encoder_stack_size"])], device=self.device
         )
 
-        self.outputs_embedding = nn.Embedding(args["num_classes"], args["model_dim"])
+        self.outputs_embedding = nn.Embedding(args["num_classes"], args["model_dim"], device=self.device)
         self.decoder_stack = nn.ModuleList()
         for _ in range(args["decoder_stack_size"]):
-            self.decoder_stack.append(Decoder(args["model_dim"]))
+            self.decoder_stack.append(Decoder(args["model_dim"], self.device))
 
-        self.out = nn.Linear(args["model_dim"], args["num_classes"])
+        self.out = nn.Linear(args["model_dim"], args["num_classes"], device=self.device)
 
     def forward(self, inputs, outputs):
         e = self.inputs_embedding(inputs)

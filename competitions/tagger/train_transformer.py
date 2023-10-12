@@ -27,7 +27,7 @@ args = {
     "characters": False,
 }
 
-model = Transformer(args).to(args["device"])
+model = Transformer(args)
 optim = torch.optim.AdamW(model.parameters())
 loss_fn = nn.CrossEntropyLoss(label_smoothing=args["label_smoothing"])
 train_dloader = morpho.train.to_dataloader(args["batch_size"], shuffle=True)

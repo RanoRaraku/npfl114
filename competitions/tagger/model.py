@@ -4,8 +4,12 @@ from typing import Any, Optional
 
 import torch
 import torch.nn as nn
-from torch.nn.utils.rnn import (pack_padded_sequence, pack_sequence,
-                                pad_packed_sequence, pad_sequence)
+from torch.nn.utils.rnn import (
+    pack_padded_sequence,
+    pack_sequence,
+    pad_packed_sequence,
+    pad_sequence,
+)
 
 
 class SimpleRNN(nn.Module):
@@ -290,9 +294,8 @@ class Seq2SeqBahAtt(nn.Module):
             k = self.Wk(encoder_outputs)
             v = self.Wv(encoder_outputs)
 
-
-            e = torch.bmm(k, q.permute(0,2,1)) / torch.sqrt(self.dk)
-            e[mask.permute(0,2,1)] = float("-inf")
+            e = torch.bmm(k, q.permute(0, 2, 1)) / torch.sqrt(self.dk)
+            e[mask.permute(0, 2, 1)] = float("-inf")
             alpha = nn.functional.softmax(e, 1).permute(0, 2, 1)
             c = torch.bmm(alpha, v)
             return c, alpha
@@ -316,7 +319,9 @@ class Seq2SeqBahAtt(nn.Module):
 
         def forward_step(self, decoder_input, decoder_hidden, encoder_outputs, mask):
             x = self.embedding(decoder_input)
-            c, att = self.attention(decoder_hidden.permute(1, 0, 2), encoder_outputs, mask)
+            c, att = self.attention(
+                decoder_hidden.permute(1, 0, 2), encoder_outputs, mask
+            )
             x, h = self.gru(torch.cat((x, c), -1), decoder_hidden.contiguous())
             x = self.out(x)
             return x, h, att
@@ -438,7 +443,7 @@ class Seq2SeqLuoAtt(nn.Module):
             # query: decoder_hidden teda vektor
             # keys: encoder_ouuputs teda matica
             e = torch.bmm(query, keys.permute(0, 2, 1))
-            e[mask] = float('-inf')
+            e[mask] = float("-inf")
             alpha = nn.functional.softmax(e, -1)
             c = torch.bmm(alpha, keys)
             return c, alpha
@@ -511,7 +516,14 @@ class Seq2SeqLuoAtt(nn.Module):
         self.encoder = Seq2SeqLuoAtt.Encoder(args)
         self.decoder = Seq2SeqLuoAtt.Decoder(args)
 
-    def forward(self, words, words_num, chars, mask, targets=None, ):
+    def forward(
+        self,
+        words,
+        words_num,
+        chars,
+        mask,
+        targets=None,
+    ):
         encoder_outputs = self.encoder(words, words_num, chars)
         decoder_ouputs = self.decoder(encoder_outputs, words_num, mask, targets)
 
