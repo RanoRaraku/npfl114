@@ -21,10 +21,20 @@ class FFN(nn.Module):
 
 
 class ScaledDotAttention(nn.Module):
-    def __init__(self, model_dim, dk, dv, device="cpu"):
+    def __init__(
+        self,
+        model_dim,
+        dk,
+        dv,
+        apply_Wo: bool = True,
+        device="cpu",
+    ):
         super(ScaledDotAttention, self).__init__()
         self.dk = torch.tensor(dk, dtype=torch.float32, device=device)
-        self.Wo = nn.Linear(dv, model_dim, device=device)
+        if apply_Wo:
+            self.Wo = nn.Linear(dv, model_dim, device=device)
+        else:
+            self.Wo = nn.Identity()
         self.device = device
 
     def forward(
@@ -33,17 +43,18 @@ class ScaledDotAttention(nn.Module):
         keys: torch.Tensor,
         values: torch.Tensor,
         apply_mask: bool = False,
-        apply_Wo: bool = True,
     ):
+        B = keys.shape[0]
         scores = torch.bmm(query, keys.permute(0, 2, 1)) / torch.sqrt(self.dk)
         if apply_mask:
             T = query.shape[1]
-            mask = torch.triu(torch.ones(T, T, dtype=torch.bool, device=self.device), 1)
-            scores += -1e12 * mask
+            mask = torch.triu(
+                torch.ones(B, T, T, dtype=torch.bool, device=self.device), 1
+            )
+            scores[mask] = float("-inf")
         weights = nn.functional.softmax(scores, -1)
         context = torch.bmm(weights, values)
-        if apply_Wo:
-            context = self.Wo(context)
+        context = self.Wo(context)
         return context
 
 
@@ -55,7 +66,13 @@ class MultiHeadAttention(nn.Module):
 
         self.att_list = nn.ModuleList(
             [
-                ScaledDotAttention(model_dim, int(dk / heads), int(dv / heads), device)
+                ScaledDotAttention(
+                    model_dim,
+                    int(dk / heads),
+                    int(dv / heads),
+                    apply_Wo=False,
+                    device=device,
+                )
                 for _ in range(heads)
             ]
         )
@@ -66,10 +83,10 @@ class MultiHeadAttention(nn.Module):
         query: list[torch.Tensor],
         keys: list[torch.Tensor],
         values: list[torch.Tensor],
-        mask: bool = False,
+        apply_mask: bool = False,
     ):
         context = [
-            att(q, k, v, mask, False)
+            att(q, k, v, apply_mask)
             for att, q, k, v in zip(self.att_list, query, keys, values)
         ]
         context = self.Wo(torch.cat(context, dim=-1))
@@ -172,7 +189,7 @@ class Encoder(nn.Module):
 
     def forward(self, x):
         q, K, V = self.selfatt_projection(x)
-        c = self.selfatt(q, K, V)
+        c = self.selfatt(q, K, V, False)
         x = self.selfatt_norm(x + c)
         y = self.ffn(x)
         x = self.ffn_norm(x + y)
@@ -201,13 +218,13 @@ class Decoder(nn.Module):
         self.ffn = FFN(model_dim, device=device)
         self.ffn_norm = nn.LayerNorm(model_dim, device=device)
 
-    def forward(self, inputs, encodings):
+    def forward(self, inputs, encodings, apply_mask):
         q, K, V = self.selfatt_projection(inputs)
-        x = self.selfatt(q, K, V, True)
+        x = self.selfatt(q, K, V, apply_mask)
         x = self.selfatt_norm(x + inputs)
 
         q, K, V = self.edatt_projection(x, encodings)
-        y = self.edatt(q, K, V)
+        y = self.edatt(q, K, V, False)
         y = self.edatt_norm(y + x)
 
         z = self.ffn(y)
@@ -225,7 +242,7 @@ class Transformer(nn.Module):
         self.epoch = 0
 
         # Encoder
-        self.inputs_embedding = nn.Embedding(
+        self.encoder_embedding = nn.Embedding(
             args["word_vocab_size"], args["model_dim"], device=self.device
         )
         self.position_encoding = PositionEncoding(
@@ -245,7 +262,7 @@ class Transformer(nn.Module):
         )
 
         # Decoder
-        self.outputs_embedding = nn.Embedding(
+        self.decoder_embedding = nn.Embedding(
             args["num_classes"], args["model_dim"], device=self.device
         )
         self.decoder_stack = nn.ModuleList(
@@ -263,19 +280,45 @@ class Transformer(nn.Module):
 
         self.out = nn.Linear(args["model_dim"], args["num_classes"], device=self.device)
 
-    def forward(self, inputs, outputs):
-        e = self.inputs_embedding(inputs)
+    def forward(self, inputs, inputs_lens, outputs=None):
+        """
+        Inferencia ako v seq2seq musi byt sekvencna/kauzalna
+        """
+        # Encoder
+        e = self.encoder_embedding(inputs)
         e = self.position_encoding(e)
         e = self.encoder_stack(e)
 
-        d = self.outputs_embedding(outputs)
-        d = self.position_encoding(d)
-        for decoder in self.decoder_stack:
-            d = decoder(d, e)
+        # Decoder
+        if outputs is not None:
+            # TRAIN: teacher forcing with self_att causal mask
+            d = self.decoder_embedding(outputs)
+            d = self.position_encoding(d)
+            for decoder in self.decoder_stack:
+                d = decoder(d, e, True)
+            out = self.out(d)
+        else:
+            # INFERENCE: auto-regressive decoding
+            batch_size = inputs.size(0)
+            max_len = torch.max(inputs_lens).item()
+            decoder_inputs = torch.zeros(
+                batch_size, 1, dtype=torch.long, device=self.device
+            )
 
-        y = self.out(d)
+            for _ in range(max_len):
+                d = self.decoder_embedding(decoder_inputs)
+                d = self.position_encoding(d)
+                for decoder in self.decoder_stack:
+                    d = decoder(d, e, True)
+                d = self.out(d)
+                next_token = self.sample_token(d[:, -1])
+                decoder_inputs = torch.cat((decoder_inputs, next_token), dim=1)
+            out = d
+        return out
 
-        return y
+    def sample_token(self, token_pdf):
+        _, topi = token_pdf.topk(1)
+        return topi.detach()
 
 
 def eval_accuracy(model, dloader, loss_fn: Optional[Any] = None):
@@ -295,7 +338,7 @@ def eval_accuracy(model, dloader, loss_fn: Optional[Any] = None):
         ) < words_num.unsqueeze(1)
 
         # Run inference
-        y_hat = model(words, tags)
+        y_hat = model(words, words_num, tags)
         corr += torch.sum(torch.argmax(y_hat[mask], dim=-1) == tags[mask])
         total_samples += torch.sum(words_num)
 
@@ -328,7 +371,7 @@ def train_epoch(
         ) < words_num.unsqueeze(1)
 
         # Run inference
-        y_hat = model(words, tags)
+        y_hat = model(words, words_num)
         loss = loss_fn(y_hat[mask], tags[mask])
 
         # Update params

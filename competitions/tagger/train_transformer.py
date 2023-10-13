@@ -11,14 +11,14 @@ from transformer import Transformer, train_epoch
 morpho = MorphoDataset("czech_pdt")
 
 args = {
-    "batch_size": 128,
+    "batch_size": 2,
     "epochs": 5,
     "device": "cuda" if torch.cuda.is_available() else "cpu",
     "dataset": "czech_pdt",
     "model": "transformer",
-    "heads": 4,
+    "heads": 1,
     "model_dim": 512,
-    "keys_dim": 128,
+    "keys_dim": 64,
     "values_dim": 64,
     "max_seq_len": morpho.max_length,
     "encoder_stack_size": 2,
@@ -29,6 +29,8 @@ args = {
     "packed_sequences": False,
     "characters": False,
 }
+
+# model = torch.nn.Transformer(512, 4, 2, 2, 2048, 0.1, "relu", batch_first=True, device="cuda" if torch.cuda.is_available() else "cpu")
 
 model = Transformer(args)
 optim = torch.optim.AdamW(model.parameters())
