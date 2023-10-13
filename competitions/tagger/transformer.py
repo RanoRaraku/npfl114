@@ -338,7 +338,7 @@ def eval_accuracy(model, dloader, loss_fn: Optional[Any] = None):
         ) < words_num.unsqueeze(1)
 
         # Run inference
-        y_hat = model(words, words_num, tags)
+        y_hat = model(words, words_num)
         corr += torch.sum(torch.argmax(y_hat[mask], dim=-1) == tags[mask])
         total_samples += torch.sum(words_num)
 
@@ -371,7 +371,7 @@ def train_epoch(
         ) < words_num.unsqueeze(1)
 
         # Run inference
-        y_hat = model(words, words_num)
+        y_hat = model(words, words_num, tags)
         loss = loss_fn(y_hat[mask], tags[mask])
 
         # Update params
