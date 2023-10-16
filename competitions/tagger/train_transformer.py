@@ -6,7 +6,7 @@ import wandb
 from torch.optim.lr_scheduler import StepLR
 
 from Morpho import MorphoDataset
-from transformer import Transformer, train_epoch
+from transformer import Transformer, train_epoch, eval_accuracy
 
 morpho = MorphoDataset("czech_pdt")
 
@@ -23,7 +23,7 @@ args = {
     "max_seq_len": morpho.max_length,
     "encoder_stack_size": 2,
     "decoder_stack_size": 2,
-    "word_vocab_size": morpho.train.unique_forms,
+    "input_vocab_size": morpho.train.unique_words,
     "num_classes": morpho.train.unique_tags,
     "label_smoothing": 0.1,
     "packed_sequences": False,
@@ -43,5 +43,6 @@ scheduler = StepLR(optim, step_size=1, gamma=0.5)
 # run_name =  datetime.datetime.now().strftime("%Y-%m-%d_%H:%M:%S")
 # wandb.init(project="tagger_competition", name=run_name, config=args)
 for epoch in range(args["epochs"]):
-    train_epoch(model, train_dloader, dev_dloader, loss_fn, optim, scheduler, None)
+    #train_epoch(model, train_dloader, dev_dloader, loss_fn, optim, scheduler, None)
+    eval_accuracy(model, dev_dloader, loss_fn)
 # wandb.finish()

@@ -1,19 +1,19 @@
 import time
-from typing import Any, Optional
+from typing import Optional, Tuple, List, Callable
 
 import torch
 import torch.nn as nn
 
 
 class FFN(nn.Module):
-    def __init__(self, input_dim, hidden_dim=2048, device="cpu") -> None:
+    def __init__(self, input_dim: int, hidden_dim: int = 2048, device: str = "cpu"):
         super(FFN, self).__init__()
 
         self.fc1 = nn.Linear(input_dim, hidden_dim, device=device)
         self.relu = nn.ReLU()
         self.fc2 = nn.Linear(hidden_dim, input_dim, device=device)
 
-    def forward(self, x):
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
         x = self.fc1(x)
         x = self.relu(x)
         x = self.fc2(x)
@@ -23,11 +23,11 @@ class FFN(nn.Module):
 class ScaledDotAttention(nn.Module):
     def __init__(
         self,
-        model_dim,
-        dk,
-        dv,
+        model_dim: int,
+        dk: int,
+        dv: int,
         apply_Wo: bool = True,
-        device="cpu",
+        device: str = "cpu",
     ):
         super(ScaledDotAttention, self).__init__()
         self.dk = torch.tensor(dk, dtype=torch.float32, device=device)
@@ -43,7 +43,7 @@ class ScaledDotAttention(nn.Module):
         keys: torch.Tensor,
         values: torch.Tensor,
         apply_mask: bool = False,
-    ):
+    ) -> torch.Tensor:
         B = keys.shape[0]
         scores = torch.bmm(query, keys.permute(0, 2, 1)) / torch.sqrt(self.dk)
         if apply_mask:
@@ -59,7 +59,9 @@ class ScaledDotAttention(nn.Module):
 
 
 class MultiHeadAttention(nn.Module):
-    def __init__(self, model_dim, dk, dv, heads, device="cpu"):
+    def __init__(
+        self, model_dim: int, dk: int, dv: int, heads: int, device: str = "cpu"
+    ):
         super(MultiHeadAttention, self).__init__()
         assert dk % heads == 0
         assert dv % heads == 0
@@ -84,7 +86,7 @@ class MultiHeadAttention(nn.Module):
         keys: list[torch.Tensor],
         values: list[torch.Tensor],
         apply_mask: bool = False,
-    ):
+    ) -> torch.Tensor:
         context = [
             att(q, k, v, apply_mask)
             for att, q, k, v in zip(self.att_list, query, keys, values)
@@ -94,7 +96,7 @@ class MultiHeadAttention(nn.Module):
 
 
 class PositionEncoding(nn.Module):
-    def __init__(self, max_seq_len, pe_dim, device="cpu"):
+    def __init__(self, max_seq_len: int, pe_dim: int, device: str = "cpu"):
         """
         Pre-computed for speed, figure out actual x_length during inference.
 
@@ -114,7 +116,7 @@ class PositionEncoding(nn.Module):
             self.pe[k, :d] = torch.sin(g)
             self.pe[k, d:] = torch.cos(g)
 
-    def forward(self, x):
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
         Expect `x` to be tensor of shape [T,C] or [B,T,C].
         """
@@ -134,13 +136,18 @@ class PositionEncoding(nn.Module):
 
 
 class AttentionProjection(nn.Module):
-    def __init__(self, model_dim, dk, dv, device="cpu"):
+    def __init__(self, model_dim: int, dk: int, dv: int, device: str = "cpu"):
         super(AttentionProjection, self).__init__()
         self.Wq = nn.Linear(model_dim, dk, device=device)
         self.Wk = nn.Linear(model_dim, dk, device=device)
         self.Wv = nn.Linear(model_dim, dv, device=device)
 
-    def forward(self, x, y=None, z=None):
+    def forward(
+        self,
+        x: torch.Tensor,
+        y: Optional[torch.Tensor] = None,
+        z: Optional[torch.Tensor] = None,
+    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         q = self.Wq(x)
         K = self.Wk(y if y is not None else x)
         V = self.Wv(z if z is not None else (y if y is not None else x))
@@ -148,7 +155,9 @@ class AttentionProjection(nn.Module):
 
 
 class MultiAttentionProjection(nn.Module):
-    def __init__(self, model_dim, dk, dv, heads, device="cpu"):
+    def __init__(
+        self, model_dim: int, dk: int, dv: int, heads: int, device: str = "cpu"
+    ):
         super(MultiAttentionProjection, self).__init__()
         assert dk % heads == 0
         assert dv % heads == 0
@@ -163,7 +172,12 @@ class MultiAttentionProjection(nn.Module):
             [nn.Linear(model_dim, int(dv / heads), device=device) for _ in range(heads)]
         )
 
-    def forward(self, x, y=None, z=None):
+    def forward(
+        self,
+        x: torch.Tensor,
+        y: Optional[torch.Tensor] = None,
+        z: Optional[torch.Tensor] = None,
+    ) -> Tuple[List[torch.Tensor], List[torch.Tensor], List[torch.Tensor]]:
         query, keys, values = [], [], []
         for Wq, Wk, Wv in zip(self.Wq, self.Wk, self.Wv):
             query.append(Wq(x))
@@ -174,20 +188,27 @@ class MultiAttentionProjection(nn.Module):
 
 
 class Encoder(nn.Module):
-    def __init__(self, model_dim, keys_dim, values_dim, heads=1, device="cpu") -> None:
+    def __init__(
+        self,
+        model_dim: int,
+        keys_dim: int,
+        values_dim: int,
+        attention_heads: int = 1,
+        device: str = "cpu",
+    ) -> None:
         super(Encoder, self).__init__()
 
         self.selfatt_projection = MultiAttentionProjection(
-            model_dim, keys_dim, values_dim, heads, device
+            model_dim, keys_dim, values_dim, attention_heads, device
         )
         self.selfatt = MultiHeadAttention(
-            model_dim, keys_dim, values_dim, heads, device
+            model_dim, keys_dim, values_dim, attention_heads, device
         )
         self.selfatt_norm = nn.LayerNorm(model_dim, device=device)
         self.ffn = FFN(model_dim, device=device)
         self.ffn_norm = nn.LayerNorm(model_dim, device=device)
 
-    def forward(self, x):
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
         q, K, V = self.selfatt_projection(x)
         c = self.selfatt(q, K, V, False)
         x = self.selfatt_norm(x + c)
@@ -198,27 +219,36 @@ class Encoder(nn.Module):
 
 
 class Decoder(nn.Module):
-    def __init__(self, model_dim, keys_dim, values_dim, heads=1, device="cpu") -> None:
+    def __init__(
+        self,
+        model_dim: int,
+        keys_dim: int,
+        values_dim: int,
+        attention_heads: int = 1,
+        device: str = "cpu",
+    ):
         super(Decoder, self).__init__()
         self.dk = keys_dim
         self.dv = values_dim
 
         self.selfatt_projection = MultiAttentionProjection(
-            model_dim, self.dk, self.dv, heads, device
+            model_dim, self.dk, self.dv, attention_heads, device
         )
-        self.selfatt = MultiHeadAttention(model_dim, self.dk, self.dv, heads, device)
+        self.selfatt = MultiHeadAttention(model_dim, self.dk, self.dv, attention_heads, device)
         self.selfatt_norm = nn.LayerNorm(model_dim, device=device)
 
         self.edatt_projection = MultiAttentionProjection(
-            model_dim, self.dk, self.dv, heads, device
+            model_dim, self.dk, self.dv, attention_heads, device
         )
-        self.edatt = MultiHeadAttention(model_dim, self.dk, self.dv, heads, device)
+        self.edatt = MultiHeadAttention(model_dim, self.dk, self.dv, attention_heads, device)
         self.edatt_norm = nn.LayerNorm(model_dim, device=device)
 
         self.ffn = FFN(model_dim, device=device)
         self.ffn_norm = nn.LayerNorm(model_dim, device=device)
 
-    def forward(self, inputs, encodings, apply_mask):
+    def forward(
+        self, inputs: torch.Tensor, encodings: torch.Tensor, apply_mask: bool = False
+    ) -> torch.Tensor:
         q, K, V = self.selfatt_projection(inputs)
         x = self.selfatt(q, K, V, apply_mask)
         x = self.selfatt_norm(x + inputs)
@@ -234,7 +264,7 @@ class Decoder(nn.Module):
 
 
 class Transformer(nn.Module):
-    def __init__(self, args) -> None:
+    def __init__(self, args: dict):
         super(Transformer, self).__init__()
 
         self.args = args
@@ -243,7 +273,7 @@ class Transformer(nn.Module):
 
         # Encoder
         self.encoder_embedding = nn.Embedding(
-            args["word_vocab_size"], args["model_dim"], device=self.device
+            args["input_vocab_size"], args["model_dim"], device=self.device
         )
         self.position_encoding = PositionEncoding(
             args["max_seq_len"], args["model_dim"], self.device
@@ -280,10 +310,12 @@ class Transformer(nn.Module):
 
         self.out = nn.Linear(args["model_dim"], args["num_classes"], device=self.device)
 
-    def forward(self, inputs, inputs_lens, outputs=None):
-        """
-        Inferencia ako v seq2seq musi byt sekvencna/kauzalna
-        """
+    def forward(
+        self,
+        inputs: torch.Tensor,
+        inputs_lens: torch.Tensor,
+        outputs: Optional[torch.Tensor] = None,
+    ) -> torch.Tensor:
         # Encoder
         e = self.encoder_embedding(inputs)
         e = self.position_encoding(e)
@@ -316,35 +348,39 @@ class Transformer(nn.Module):
             out = d
         return out
 
-    def sample_token(self, token_pdf):
+    def sample_token(self, token_pdf: torch.Tensor):
         _, topi = token_pdf.topk(1)
         return topi.detach()
 
 
-def eval_accuracy(model, dloader, loss_fn: Optional[Any] = None):
+def eval_accuracy(model, dloader, loss_fn: Optional[Callable] = None):
     """
     Returns accuracy and optionally per_sample loss.
+
+    :dloader: torch.utils.data.DataLoader object
+    :loss_fn: a callable loss function
     """
     model.eval()
     total_loss, total_samples, corr = 0, 0, 0
-    for batch in dloader:
-        words = batch["words"].to(model.device)
-        tags = batch["tags"].to(model.device)
-        words_num = batch["words_num"].to(model.device)
+    with torch.no_grad():
+        for batch in dloader:
+            words = batch["words"].to(model.device)
+            tags = batch["tags"].to(model.device)
+            words_num = batch["words_num"].to(model.device)
 
-        max_words_num = torch.max(words_num)
-        mask = torch.arange(max_words_num, device=model.device).expand(
-            len(words_num), max_words_num
-        ) < words_num.unsqueeze(1)
+            max_words_num = torch.max(words_num)
+            mask = torch.arange(max_words_num, device=model.device).expand(
+                len(words_num), max_words_num
+            ) < words_num.unsqueeze(1)
 
-        # Run inference
-        y_hat = model(words, words_num)
-        corr += torch.sum(torch.argmax(y_hat[mask], dim=-1) == tags[mask])
-        total_samples += torch.sum(words_num)
+            # Run inference
+            y_hat = model(words, words_num)
+            corr += torch.sum(torch.argmax(y_hat[mask], dim=-1) == tags[mask])
+            total_samples += torch.sum(words_num)
 
-        if loss_fn:
-            loss = loss_fn(y_hat[mask], tags[mask])
-            total_loss += loss.item()
+            if loss_fn:
+                loss = loss_fn(y_hat[mask], tags[mask])
+                total_loss += loss.item()
 
     return corr / total_samples, total_loss / len(dloader)
 
@@ -355,9 +391,17 @@ def train_epoch(
     dev_dataloader,
     loss_fn,
     optim,
-    scheduler: Optional[Any] = None,
-    logger: Optional[Any] = None,
+    lr_scheduler: Optional[Callable] = None,
+    logger: Optional[Callable] = None,
 ):
+    """
+    :train_dataloader: a torch.utils.data.DataLoader object
+    :dev_dataloader: a torch.utils.data.DataLoader object
+    :loss_fn: a callable loss function
+    :optim: a torch.optim object
+    :lr_scheduler: a learning rate scheduler
+    :logger: a callable logger (i.e wandb)
+    """
     start_time = time.time()
     model.train()
     for batch in train_dataloader:
@@ -384,8 +428,8 @@ def train_epoch(
 
     model.epoch += 1
 
-    if scheduler is not None:
-        scheduler.step()
+    if lr_scheduler is not None:
+        lr_scheduler.step()
 
     # log metrics to wandb
     dev_acc, dev_loss = eval_accuracy(model, dev_dataloader, loss_fn)

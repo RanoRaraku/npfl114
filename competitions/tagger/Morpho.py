@@ -29,35 +29,40 @@ from torch.utils.data import DataLoader, Dataset
 
 
 class Factor:
-    word_mapping: Dict
-    char_mapping: Dict
-
     def __init__(self) -> None:
-        self.words = []
+        self.strings = []
+        self.word_mapping = {
+            "<BOS>": 0,
+            "<EOS>": 1,
+        }
+        self.char_mapping = {
+            "<BOS>": 0,
+            "<EOS>": 1,
+        }
 
     def finalize(self, dev: Optional[Any] = None):
         # some super long senteces, thats suspicious
-        self.words = [s for s in self.words if len(s) < 50]
+        self.strings = [s for s in self.strings if len(s) < 50]
 
         self.chars = [
             [[char for char in word] for word in sentence] + [["<EOS>"]]
-            for sentence in self.words
+            for sentence in self.strings
         ]
         char_vocab = [
             char for sentence in self.chars for word in sentence for char in word
         ]
 
-        self.words = [sentence + ["<EOS>"] for sentence in self.words]
-        word_vocab = ["<EOS>"] + [word for sentence in self.words for word in sentence]
+        self.strings = [sentence + ["<EOS>"] for sentence in self.strings]
+        word_vocab = [word for sentence in self.strings for word in sentence]
 
         if dev:
-            word_vocab += [word for sentence in dev.words for word in sentence]
+            word_vocab += [word for sentence in dev.strings for word in sentence]
             char_vocab += [
                 char for sentence in dev.chars for word in sentence for char in word
             ]
 
-        self.char_mapping = {k: v for v, k in enumerate(sorted(set(char_vocab)))}
-        self.word_mapping = {k: v for v, k in enumerate(sorted(set(word_vocab)))}
+        self.char_mapping.update({k: v for v, k in enumerate(sorted(set(char_vocab))) if k not in ["<BOS>", "<EOS>"]})
+        self.word_mapping.update({k: v for v, k in enumerate(sorted(set(word_vocab))) if k not in ["<BOS>", "<EOS>"]})
 
 
 class CustomDataset(Dataset):
@@ -79,12 +84,12 @@ class CustomDataset(Dataset):
             if line:
                 if not in_sentence:
                     for factor in self._factors:
-                        factor.words.append([])
+                        factor.strings.append([])
 
                 columns = line.split("\t")
                 assert len(columns) == len(self._factors)
                 for column, factor in zip(columns, self._factors):
-                    factor.words[-1].append(column)
+                    factor.strings[-1].append(column)
                 in_sentence = True
             else:
                 in_sentence = False
@@ -94,24 +99,29 @@ class CustomDataset(Dataset):
         # Finalize the mappings
         for i, factor in enumerate(self._factors):
             factor.finalize(dev._factors[i] if dev else None)
-        self._size = len(self.forms.words)
+        self._size = len(self.forms.strings)
 
-        self.unique_forms = len(self.forms.word_mapping)
-        self.unique_chars = len(self.forms.char_mapping)
-        self.unique_tags = len(self.tags.word_mapping)
+        self.unique_words = len(self.forms.word_mapping)
+        self.words_bos = self.forms.word_mapping["<BOS>"]
         self.words_eos = self.forms.word_mapping["<EOS>"]
+
+        self.unique_chars = len(self.forms.char_mapping)
+        self.chars_bos = self.forms.char_mapping["<BOS>"]
         self.chars_eos = self.forms.char_mapping["<EOS>"]
+
+        self.unique_tags = len(self.tags.word_mapping)
+        self.tags_bos = self.tags.word_mapping["<BOS>"]
         self.tags_eos = self.tags.word_mapping["<EOS>"]
 
     def __getitem__(self, index: int) -> Tuple[Tensor, Tensor]:
         words = tensor(
-            [self.forms.word_mapping[word] for word in self.forms.words[index]]
+            [self.forms.word_mapping[word] for word in self.forms.strings[index]]
         ).to(torch.long)
         chars = [
             torch.LongTensor([self.forms.char_mapping[c] for c in w])
             for w in self.forms.chars[index]
         ]
-        tags = tensor([self.tags.word_mapping[tag] for tag in self.tags.words[index]])
+        tags = tensor([self.tags.word_mapping[tag] for tag in self.tags.strings[index]])
 
         return words, chars, tags
 
@@ -197,11 +207,11 @@ class MorphoDataset:
         self.dev.forms.char_mapping = self.train.forms.char_mapping
         self.dev.tags.word_mapping = self.train.tags.word_mapping
         self.dev.tags.char_mapping = self.train.tags.char_mapping
-        self.dev.unique_forms = self.train.unique_forms
+        self.dev.unique_words = self.train.unique_words
         self.dev.unique_tags = self.train.unique_tags
 
         # set maximum sequence length
         self.max_length = max(
-            [len(s) for s in self.train.forms.words]
-            + [len(s) for s in self.dev.forms.words]
+            [len(s) for s in self.train.forms.strings]
+            + [len(s) for s in self.dev.forms.strings]
         )
