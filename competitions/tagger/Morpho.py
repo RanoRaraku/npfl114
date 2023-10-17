@@ -128,9 +128,9 @@ class CustomDataset(Dataset):
     def __getitem__(self, index: int) -> Tuple[Tensor, Tensor]:
         words = tensor(
             [self.forms.word_mapping[word] for word in self.forms.strings[index]]
-        ).to(torch.long)
+        ).to(torch.int32)
         chars = [
-            torch.LongTensor([self.forms.char_mapping[c] for c in w])
+            tensor([self.forms.char_mapping[c] for c in w]).to(torch.int32)
             for w in self.forms.chars[index]
         ]
         tags = tensor([self.tags.word_mapping[tag] for tag in self.tags.strings[index]])
@@ -161,7 +161,7 @@ class CustomDataset(Dataset):
         words_num = tensor(list(map(len, words))).to(torch.int64)
         max_len = torch.max(words_num).item()
         chars = [
-            ct + [torch.LongTensor([self.chars_eos]) for _ in range(max_len - wn)]
+            ct + [tensor([self.chars_eos]).to(torch.int32) for _ in range(max_len - wn)]
             for ct, wn in zip(chars, words_num)
         ]
         return {

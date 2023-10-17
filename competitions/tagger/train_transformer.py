@@ -18,6 +18,7 @@ args = {
     "dataset": "czech_pdt",
     "model": "transformer",
     "heads": 1,
+    "input_dropout": 0.2,
     "model_dim": 512,
     "keys_dim": 64,
     "values_dim": 64,

@@ -1,5 +1,5 @@
 import time
-from typing import Optional, Tuple, List, Callable
+from typing import Callable, List, Optional, Tuple
 
 import torch
 import torch.nn as nn
@@ -135,6 +135,28 @@ class PositionEncoding(nn.Module):
         return x
 
 
+class InputLayer(nn.Module):
+    def __init__(
+        self,
+        input_dim: int,
+        model_dim: int,
+        max_seq_len: int,
+        dropout_p: float = 0.2,
+        device: str = "cpu",
+    ):
+        super(InputLayer, self).__init__()
+
+        self.dropout = nn.Dropout(dropout_p)
+        self.embedding = nn.Embedding(input_dim, model_dim, device=device)
+        self.position_encoding = PositionEncoding(max_seq_len, model_dim, device)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        x = self.embedding(x)
+        x = self.position_encoding(x)
+        x = self.dropout(x)
+        return x
+
+
 class AttentionProjection(nn.Module):
     def __init__(self, model_dim: int, dk: int, dv: int, device: str = "cpu"):
         super(AttentionProjection, self).__init__()
@@ -234,13 +256,17 @@ class Decoder(nn.Module):
         self.selfatt_projection = MultiAttentionProjection(
             model_dim, self.dk, self.dv, attention_heads, device
         )
-        self.selfatt = MultiHeadAttention(model_dim, self.dk, self.dv, attention_heads, device)
+        self.selfatt = MultiHeadAttention(
+            model_dim, self.dk, self.dv, attention_heads, device
+        )
         self.selfatt_norm = nn.LayerNorm(model_dim, device=device)
 
         self.edatt_projection = MultiAttentionProjection(
             model_dim, self.dk, self.dv, attention_heads, device
         )
-        self.edatt = MultiHeadAttention(model_dim, self.dk, self.dv, attention_heads, device)
+        self.edatt = MultiHeadAttention(
+            model_dim, self.dk, self.dv, attention_heads, device
+        )
         self.edatt_norm = nn.LayerNorm(model_dim, device=device)
 
         self.ffn = FFN(model_dim, device=device)
@@ -249,7 +275,6 @@ class Decoder(nn.Module):
     def forward(
         self, inputs: torch.Tensor, encodings: torch.Tensor, apply_mask: bool = False
     ) -> torch.Tensor:
-
         q, K, V = self.selfatt_projection(inputs)
         x = self.selfatt(q, K, V, apply_mask)
         x = self.selfatt_norm(x + inputs)
@@ -273,11 +298,12 @@ class Transformer(nn.Module):
         self.epoch = 0
 
         # Encoder
-        self.encoder_embedding = nn.Embedding(
-            args["input_vocab_size"], args["model_dim"], device=self.device
-        )
-        self.position_encoding = PositionEncoding(
-            args["max_seq_len"], args["model_dim"], self.device
+        self.encoder_input = InputLayer(
+            args["input_vocab_size"],
+            args["model_dim"],
+            args["max_seq_len"],
+            args["input_dropout"],
+            self.device,
         )
         self.encoder_stack = nn.Sequential(
             *[
@@ -293,8 +319,12 @@ class Transformer(nn.Module):
         )
 
         # Decoder
-        self.decoder_embedding = nn.Embedding(
-            args["num_classes"], args["model_dim"], device=self.device
+        self.decoder_input = InputLayer(
+            args["num_classes"],
+            args["model_dim"],
+            args["max_seq_len"],
+            args["input_dropout"],
+            self.device,
         )
         self.decoder_stack = nn.ModuleList(
             [
@@ -318,15 +348,13 @@ class Transformer(nn.Module):
         max_seq_len: int = 50,
     ) -> torch.Tensor:
         # Encoder
-        e = self.encoder_embedding(inputs)
-        e = self.position_encoding(e)
+        e = self.encoder_input(inputs)
         e = self.encoder_stack(e)
 
         # Decoder
         if outputs is not None:
             # TRAIN: teacher forcing with self_att causal mask
-            d = self.decoder_embedding(outputs)
-            d = self.position_encoding(d)
+            d = self.decoder_input(outputs)
             for decoder in self.decoder_stack:
                 d = decoder(d, e, True)
             out = self.out(d)
@@ -411,8 +439,8 @@ def train_epoch(
         ) < words_num.unsqueeze(1)
 
         # Run inference
-        input_targets = tags[:,:-1]
-        output_targets = tags[:,1:]    
+        input_targets = tags[:, :-1]
+        output_targets = tags[:, 1:]
         y_hat = model(words, input_targets)
         loss = loss_fn(y_hat[mask], output_targets[mask])
 
@@ -421,9 +449,11 @@ def train_epoch(
         loss.backward()
         optim.step()
 
+        print(loss.item())
+        exit()
+
         if logger is not None:
             logger.log({"train_loss": loss.item()})
-
 
     # EVAL on dev
     dev_samples, dev_corr, dev_loss = 0, 0, 0
@@ -440,19 +470,21 @@ def train_epoch(
             ) < words_num.unsqueeze(1)
 
             # Run inference
-            input_targets = tags[:,:-1]
-            output_targets = tags[:,1:]
+            input_targets = tags[:, :-1]
+            output_targets = tags[:, 1:]
             y_hat = model(words, input_targets)
             loss = loss_fn(y_hat[mask], output_targets[mask])
 
-            dev_loss += loss.detach().item() 
-            dev_corr += torch.sum(torch.argmax(y_hat[mask], dim=-1) == output_targets[mask])
+            dev_loss += loss.detach().item()
+            dev_corr += torch.sum(
+                torch.argmax(y_hat[mask], dim=-1) == output_targets[mask]
+            )
             dev_samples += torch.sum(words_num)
     dev_acc = dev_corr / dev_samples
     dev_loss /= len(dev_dataloader)
     end_time = time.time()
 
-    # Log 
+    # Log
     model.epoch += 1
     if lr_scheduler is not None:
         lr_scheduler.step()
@@ -481,7 +513,9 @@ def train_transformer(
     :lr_scheduler: a learning rate scheduler
     :logger: a callable logger (i.e wandb)
     """
-    model = torch.nn.Transformer(512, 8, 2, 2, 2048, 0.1, "relu", batch_first=True, device="cpu")
+    model = torch.nn.Transformer(
+        512, 8, 2, 2, 2048, 0.1, "relu", batch_first=True, device="cpu"
+    )
 
     encoder_embedding = nn.Embedding(args["input_vocab_size"], args["model_dim"])
     position_encoding = PositionEncoding(args["max_seq_len"], args["model_dim"])
@@ -503,7 +537,6 @@ def train_transformer(
         e = position_encoding(e)
         d = decoder_embedding(tags)
         d = position_encoding(d)
-
 
         # Run inference
         y_hat = model(e, d)
