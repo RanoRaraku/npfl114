@@ -1,5 +1,5 @@
 import time
-from typing import Callable, List, Optional, Tuple
+from typing import Optional, Tuple, List, Callable
 
 import torch
 import torch.nn as nn
@@ -234,17 +234,13 @@ class Decoder(nn.Module):
         self.selfatt_projection = MultiAttentionProjection(
             model_dim, self.dk, self.dv, attention_heads, device
         )
-        self.selfatt = MultiHeadAttention(
-            model_dim, self.dk, self.dv, attention_heads, device
-        )
+        self.selfatt = MultiHeadAttention(model_dim, self.dk, self.dv, attention_heads, device)
         self.selfatt_norm = nn.LayerNorm(model_dim, device=device)
 
         self.edatt_projection = MultiAttentionProjection(
             model_dim, self.dk, self.dv, attention_heads, device
         )
-        self.edatt = MultiHeadAttention(
-            model_dim, self.dk, self.dv, attention_heads, device
-        )
+        self.edatt = MultiHeadAttention(model_dim, self.dk, self.dv, attention_heads, device)
         self.edatt_norm = nn.LayerNorm(model_dim, device=device)
 
         self.ffn = FFN(model_dim, device=device)
@@ -253,14 +249,9 @@ class Decoder(nn.Module):
     def forward(
         self, inputs: torch.Tensor, encodings: torch.Tensor, apply_mask: bool = False
     ) -> torch.Tensor:
+
         q, K, V = self.selfatt_projection(inputs)
-
-        # print(f"{inputs.shape}, {encodings.shape}")
-
         x = self.selfatt(q, K, V, apply_mask)
-
-        # print("here2")
-
         x = self.selfatt_norm(x + inputs)
 
         q, K, V = self.edatt_projection(x, encodings)
@@ -420,8 +411,8 @@ def train_epoch(
         ) < words_num.unsqueeze(1)
 
         # Run inference
-        input_targets = tags[:, :-1]
-        output_targets = tags[:, 1:]
+        input_targets = tags[:,:-1]
+        output_targets = tags[:,1:]    
         y_hat = model(words, input_targets)
         loss = loss_fn(y_hat[mask], output_targets[mask])
 
@@ -432,6 +423,7 @@ def train_epoch(
 
         if logger is not None:
             logger.log({"train_loss": loss.item()})
+
 
     # EVAL on dev
     dev_samples, dev_corr, dev_loss = 0, 0, 0
@@ -448,18 +440,18 @@ def train_epoch(
             ) < words_num.unsqueeze(1)
 
             # Run inference
-            input_targets = tags[:, :-1]
-            output_targets = tags[:, 1:]
+            input_targets = tags[:,:-1]
+            output_targets = tags[:,1:]
             y_hat = model(words, input_targets)
             loss = loss_fn(y_hat[mask], output_targets[mask])
 
-            dev_loss += loss.detach().item()
+            dev_loss += loss.detach().item() 
             dev_corr += torch.sum(torch.argmax(y_hat[mask], dim=-1) == tags[mask])
             dev_samples += torch.sum(words_num)
     dev_acc = dev_corr / dev_samples
     dev_loss /= len(dev_dataloader)
 
-    # Log
+    # Log 
     model.epoch += 1
     if lr_scheduler is not None:
         lr_scheduler.step()
@@ -490,9 +482,7 @@ def train_transformer(
     :lr_scheduler: a learning rate scheduler
     :logger: a callable logger (i.e wandb)
     """
-    model = torch.nn.Transformer(
-        512, 8, 2, 2, 2048, 0.1, "relu", batch_first=True, device="cpu"
-    )
+    model = torch.nn.Transformer(512, 8, 2, 2, 2048, 0.1, "relu", batch_first=True, device="cpu")
 
     encoder_embedding = nn.Embedding(args["input_vocab_size"], args["model_dim"])
     position_encoding = PositionEncoding(args["max_seq_len"], args["model_dim"])
@@ -514,6 +504,7 @@ def train_transformer(
         e = position_encoding(e)
         d = decoder_embedding(tags)
         d = position_encoding(d)
+
 
         # Run inference
         y_hat = model(e, d)
