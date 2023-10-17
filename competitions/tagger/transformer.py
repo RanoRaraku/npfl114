@@ -1,5 +1,5 @@
 import time
-from typing import Optional, Tuple, List, Callable
+from typing import Callable, List, Optional, Tuple
 
 import torch
 import torch.nn as nn
@@ -234,13 +234,17 @@ class Decoder(nn.Module):
         self.selfatt_projection = MultiAttentionProjection(
             model_dim, self.dk, self.dv, attention_heads, device
         )
-        self.selfatt = MultiHeadAttention(model_dim, self.dk, self.dv, attention_heads, device)
+        self.selfatt = MultiHeadAttention(
+            model_dim, self.dk, self.dv, attention_heads, device
+        )
         self.selfatt_norm = nn.LayerNorm(model_dim, device=device)
 
         self.edatt_projection = MultiAttentionProjection(
             model_dim, self.dk, self.dv, attention_heads, device
         )
-        self.edatt = MultiHeadAttention(model_dim, self.dk, self.dv, attention_heads, device)
+        self.edatt = MultiHeadAttention(
+            model_dim, self.dk, self.dv, attention_heads, device
+        )
         self.edatt_norm = nn.LayerNorm(model_dim, device=device)
 
         self.ffn = FFN(model_dim, device=device)
@@ -250,7 +254,13 @@ class Decoder(nn.Module):
         self, inputs: torch.Tensor, encodings: torch.Tensor, apply_mask: bool = False
     ) -> torch.Tensor:
         q, K, V = self.selfatt_projection(inputs)
+
+        # print(f"{inputs.shape}, {encodings.shape}")
+
         x = self.selfatt(q, K, V, apply_mask)
+
+        # print("here2")
+
         x = self.selfatt_norm(x + inputs)
 
         q, K, V = self.edatt_projection(x, encodings)
@@ -313,8 +323,8 @@ class Transformer(nn.Module):
     def forward(
         self,
         inputs: torch.Tensor,
-        inputs_lens: torch.Tensor,
         outputs: Optional[torch.Tensor] = None,
+        max_seq_len: int = 50,
     ) -> torch.Tensor:
         # Encoder
         e = self.encoder_embedding(inputs)
@@ -332,20 +342,18 @@ class Transformer(nn.Module):
         else:
             # INFERENCE: auto-regressive decoding
             batch_size = inputs.size(0)
-            max_len = torch.max(inputs_lens).item()
             decoder_inputs = torch.zeros(
                 batch_size, 1, dtype=torch.long, device=self.device
             )
 
-            for _ in range(max_len):
+            for _ in range(max_seq_len):
                 d = self.decoder_embedding(decoder_inputs)
                 d = self.position_encoding(d)
                 for decoder in self.decoder_stack:
                     d = decoder(d, e, True)
-                d = self.out(d)
-                next_token = self.sample_token(d[:, -1])
+                out = self.out(d)
+                next_token = self.sample_token(out[:, -1])
                 decoder_inputs = torch.cat((decoder_inputs, next_token), dim=1)
-            out = d
         return out
 
     def sample_token(self, token_pdf: torch.Tensor):
@@ -353,12 +361,11 @@ class Transformer(nn.Module):
         return topi.detach()
 
 
-def eval_accuracy(model, dloader, loss_fn: Optional[Callable] = None):
+def eval_accuracy(model, dloader):
     """
-    Returns accuracy and optionally per_sample loss.
+    Returns accuracy.
 
     :dloader: torch.utils.data.DataLoader object
-    :loss_fn: a callable loss function
     """
     model.eval()
     total_loss, total_samples, corr = 0, 0, 0
@@ -377,10 +384,6 @@ def eval_accuracy(model, dloader, loss_fn: Optional[Callable] = None):
             y_hat = model(words, words_num)
             corr += torch.sum(torch.argmax(y_hat[mask], dim=-1) == tags[mask])
             total_samples += torch.sum(words_num)
-
-            if loss_fn:
-                loss = loss_fn(y_hat[mask], tags[mask])
-                total_loss += loss.item()
 
     return corr / total_samples, total_loss / len(dloader)
 
@@ -402,12 +405,14 @@ def train_epoch(
     :lr_scheduler: a learning rate scheduler
     :logger: a callable logger (i.e wandb)
     """
+
+    # TRAIN on train
     start_time = time.time()
     model.train()
     for batch in train_dataloader:
         words = batch["words"].to(model.device)
         tags = batch["tags"].to(model.device)
-        words_num = batch["words_num"].to(model.device)
+        words_num = batch["words_num"].to(model.device) - 1
 
         max_words_num = torch.max(words_num)
         mask = torch.arange(max_words_num, device=model.device).expand(
@@ -415,8 +420,10 @@ def train_epoch(
         ) < words_num.unsqueeze(1)
 
         # Run inference
-        y_hat = model(words, words_num, tags)
-        loss = loss_fn(y_hat[mask], tags[mask])
+        input_targets = tags[:, :-1]
+        output_targets = tags[:, 1:]
+        y_hat = model(words, input_targets)
+        loss = loss_fn(y_hat[mask], output_targets[mask])
 
         # Update params
         optim.zero_grad()
@@ -426,14 +433,38 @@ def train_epoch(
         if logger is not None:
             logger.log({"train_loss": loss.item()})
 
-    model.epoch += 1
+    # EVAL on dev
+    dev_samples, dev_corr, dev_loss = 0, 0, 0
+    model.eval()
+    with torch.no_grad():
+        for batch in dev_dataloader:
+            words = batch["words"].to(model.device)
+            tags = batch["tags"].to(model.device)
+            words_num = batch["words_num"].to(model.device) - 1
 
+            max_words_num = torch.max(words_num)
+            mask = torch.arange(max_words_num, device=model.device).expand(
+                len(words_num), max_words_num
+            ) < words_num.unsqueeze(1)
+
+            # Run inference
+            input_targets = tags[:, :-1]
+            output_targets = tags[:, 1:]
+            y_hat = model(words, input_targets)
+            loss = loss_fn(y_hat[mask], output_targets[mask])
+
+            dev_loss += loss.detach().item()
+            dev_corr += torch.sum(torch.argmax(y_hat[mask], dim=-1) == tags[mask])
+            dev_samples += torch.sum(words_num)
+    dev_acc = dev_corr / dev_samples
+    dev_loss /= len(dev_dataloader)
+
+    # Log
+    model.epoch += 1
     if lr_scheduler is not None:
         lr_scheduler.step()
-
-    # log metrics to wandb
-    dev_acc, dev_loss = eval_accuracy(model, dev_dataloader, loss_fn)
     end_time = time.time()
+
     if logger is not None:
         logger.log(
             {
@@ -442,3 +473,54 @@ def train_epoch(
                 "dev_acc": dev_acc,
             }
         )
+
+
+def train_transformer(
+    model,
+    train_dataloader,
+    loss_fn,
+    optim,
+    args,
+):
+    """
+    :train_dataloader: a torch.utils.data.DataLoader object
+    :dev_dataloader: a torch.utils.data.DataLoader object
+    :loss_fn: a callable loss function
+    :optim: a torch.optim object
+    :lr_scheduler: a learning rate scheduler
+    :logger: a callable logger (i.e wandb)
+    """
+    model = torch.nn.Transformer(
+        512, 8, 2, 2, 2048, 0.1, "relu", batch_first=True, device="cpu"
+    )
+
+    encoder_embedding = nn.Embedding(args["input_vocab_size"], args["model_dim"])
+    position_encoding = PositionEncoding(args["max_seq_len"], args["model_dim"])
+    decoder_embedding = nn.Embedding(args["num_classes"], args["model_dim"])
+    out = nn.Linear(args["model_dim"], args["num_classes"])
+
+    model.train()
+    for batch in train_dataloader:
+        words = batch["words"]
+        tags = batch["tags"]
+        words_num = batch["words_num"]
+
+        max_words_num = torch.max(words_num)
+        mask = torch.arange(max_words_num).expand(
+            len(words_num), max_words_num
+        ) < words_num.unsqueeze(1)
+
+        e = encoder_embedding(words)
+        e = position_encoding(e)
+        d = decoder_embedding(tags)
+        d = position_encoding(d)
+
+        # Run inference
+        y_hat = model(e, d)
+        y_hat = out(y_hat)
+        loss = loss_fn(y_hat[mask], tags[mask])
+
+        # Update params
+        optim.zero_grad()
+        loss.backward()
+        optim.step()

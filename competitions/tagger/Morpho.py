@@ -45,14 +45,14 @@ class Factor:
         self.strings = [s for s in self.strings if len(s) < 50]
 
         self.chars = [
-            [[char for char in word] for word in sentence] + [["<EOS>"]]
+            [["<BOS>"]] + [[char for char in word] for word in sentence] + [["<EOS>"]]
             for sentence in self.strings
         ]
         char_vocab = [
             char for sentence in self.chars for word in sentence for char in word
         ]
 
-        self.strings = [sentence + ["<EOS>"] for sentence in self.strings]
+        self.strings = [["<BOS>"] + sentence + ["<EOS>"] for sentence in self.strings]
         word_vocab = [word for sentence in self.strings for word in sentence]
 
         if dev:
@@ -61,8 +61,20 @@ class Factor:
                 char for sentence in dev.chars for word in sentence for char in word
             ]
 
-        self.char_mapping.update({k: v for v, k in enumerate(sorted(set(char_vocab))) if k not in ["<BOS>", "<EOS>"]})
-        self.word_mapping.update({k: v for v, k in enumerate(sorted(set(word_vocab))) if k not in ["<BOS>", "<EOS>"]})
+        self.char_mapping.update(
+            {
+                k: v
+                for v, k in enumerate(sorted(set(char_vocab)))
+                if k not in ["<BOS>", "<EOS>"]
+            }
+        )
+        self.word_mapping.update(
+            {
+                k: v
+                for v, k in enumerate(sorted(set(word_vocab)))
+                if k not in ["<BOS>", "<EOS>"]
+            }
+        )
 
 
 class CustomDataset(Dataset):
