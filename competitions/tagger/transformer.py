@@ -448,10 +448,7 @@ def train_epoch(
         optim.zero_grad()
         loss.backward()
         optim.step()
-
-        print(loss.item())
-        exit()
-
+        
         if logger is not None:
             logger.log({"train_loss": loss.item()})
 
