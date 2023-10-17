@@ -446,17 +446,16 @@ def train_epoch(
             loss = loss_fn(y_hat[mask], output_targets[mask])
 
             dev_loss += loss.detach().item() 
-            dev_corr += torch.sum(torch.argmax(y_hat[mask], dim=-1) == tags[mask])
+            dev_corr += torch.sum(torch.argmax(y_hat[mask], dim=-1) == output_targets[mask])
             dev_samples += torch.sum(words_num)
     dev_acc = dev_corr / dev_samples
     dev_loss /= len(dev_dataloader)
+    end_time = time.time()
 
     # Log 
     model.epoch += 1
     if lr_scheduler is not None:
         lr_scheduler.step()
-    end_time = time.time()
-
     if logger is not None:
         logger.log(
             {
