@@ -347,6 +347,9 @@ class Transformer(nn.Module):
         outputs: Optional[torch.Tensor] = None,
         max_seq_len: int = 50,
     ) -> torch.Tensor:
+        """
+        Assume 0 is <BOS> and 1 is <EOS> token.
+        """
         # Encoder
         e = self.encoder_input(inputs)
         e = self.encoder_stack(e)
@@ -366,16 +369,16 @@ class Transformer(nn.Module):
             )
 
             for _ in range(max_seq_len):
-                d = self.decoder_embedding(decoder_inputs)
-                d = self.position_encoding(d)
+                d = self.decoder_input(decoder_inputs)
                 for decoder in self.decoder_stack:
                     d = decoder(d, e, True)
                 out = self.out(d)
-                next_token = self.sample_token(out[:, -1])
-                decoder_inputs = torch.cat((decoder_inputs, next_token), dim=1)
+                next_tokens = self.greedy_decoding(out[:, -1])
+                decoder_inputs = torch.cat((decoder_inputs, next_tokens), dim=1)
+
         return out
 
-    def sample_token(self, token_pdf: torch.Tensor):
+    def greedy_decoding(self, token_pdf: torch.Tensor):
         _, topi = token_pdf.topk(1)
         return topi.detach()
 
@@ -387,12 +390,13 @@ def eval_accuracy(model, dloader):
     :dloader: torch.utils.data.DataLoader object
     """
     model.eval()
-    total_loss, total_samples, corr = 0, 0, 0
+    total_samples, corr = 0, 0
     with torch.no_grad():
         for batch in dloader:
             words = batch["words"].to(model.device)
             tags = batch["tags"].to(model.device)
-            words_num = batch["words_num"].to(model.device)
+            words_num = batch["words_num"].to(model.device) - 1
+            output_targets = tags[:, 1:]
 
             max_words_num = torch.max(words_num)
             mask = torch.arange(max_words_num, device=model.device).expand(
@@ -400,12 +404,11 @@ def eval_accuracy(model, dloader):
             ) < words_num.unsqueeze(1)
 
             # Run inference
-            y_hat = model(words, words_num)
-            corr += torch.sum(torch.argmax(y_hat[mask], dim=-1) == tags[mask])
+            y_hat = model(words, max_seq_len=max_words_num)
+            corr += torch.sum(torch.argmax(y_hat[mask], dim=-1) == output_targets[mask])
             total_samples += torch.sum(words_num)
 
-    return corr / total_samples, total_loss / len(dloader)
-
+    return corr / total_samples
 
 def train_epoch(
     model,
@@ -448,7 +451,7 @@ def train_epoch(
         optim.zero_grad()
         loss.backward()
         optim.step()
-        
+
         if logger is not None:
             logger.log({"train_loss": loss.item()})
 
