@@ -410,6 +410,7 @@ def eval_accuracy(model, dloader):
 
     return corr / total_samples
 
+
 def train_epoch(
     model,
     train_dataloader,
@@ -496,54 +497,3 @@ def train_epoch(
                 "dev_acc": dev_acc,
             }
         )
-
-
-def train_transformer(
-    model,
-    train_dataloader,
-    loss_fn,
-    optim,
-    args,
-):
-    """
-    :train_dataloader: a torch.utils.data.DataLoader object
-    :dev_dataloader: a torch.utils.data.DataLoader object
-    :loss_fn: a callable loss function
-    :optim: a torch.optim object
-    :lr_scheduler: a learning rate scheduler
-    :logger: a callable logger (i.e wandb)
-    """
-    model = torch.nn.Transformer(
-        512, 8, 2, 2, 2048, 0.1, "relu", batch_first=True, device="cpu"
-    )
-
-    encoder_embedding = nn.Embedding(args["input_vocab_size"], args["model_dim"])
-    position_encoding = PositionEncoding(args["max_seq_len"], args["model_dim"])
-    decoder_embedding = nn.Embedding(args["num_classes"], args["model_dim"])
-    out = nn.Linear(args["model_dim"], args["num_classes"])
-
-    model.train()
-    for batch in train_dataloader:
-        words = batch["words"]
-        tags = batch["tags"]
-        words_num = batch["words_num"]
-
-        max_words_num = torch.max(words_num)
-        mask = torch.arange(max_words_num).expand(
-            len(words_num), max_words_num
-        ) < words_num.unsqueeze(1)
-
-        e = encoder_embedding(words)
-        e = position_encoding(e)
-        d = decoder_embedding(tags)
-        d = position_encoding(d)
-
-        # Run inference
-        y_hat = model(e, d)
-        y_hat = out(y_hat)
-        loss = loss_fn(y_hat[mask], tags[mask])
-
-        # Update params
-        optim.zero_grad()
-        loss.backward()
-        optim.step()

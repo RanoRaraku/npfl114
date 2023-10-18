@@ -1,20 +1,18 @@
 import os
 import sys
 import zipfile
-from typing import Any, BinaryIO, Dict, Optional, Tuple
+from typing import Any, BinaryIO, Optional, Tuple
 
 import torch
 from torch import Tensor, tensor
-from torch.nn.functional import one_hot
 from torch.nn.utils.rnn import pad_sequence
 from torch.utils.data import DataLoader, Dataset
 
-# Loads a morphological dataset in a vertical format.
-# - The data consists of three datasets
+# Loads a morphological dataset 'MorphoDataset'
+# - The morphological dataset consists of two subdatasets 'CustomDataset'
 #   - `train`
 #   - `dev`
-#   - `test`
-# - Each dataset is composed of
+# - Each 'CustomDataset' is of PyTorch format and composed of
 #   - `size`: number of sentences in the dataset
 #   - `forms`, `lemmas`, `tags`: objects containing the following fields:
 #     - `strings`: a Python list containing input sentences, each being
@@ -25,7 +23,9 @@ from torch.utils.data import DataLoader, Dataset
 #     - `char_mapping`: a `tf.keras.layers.StringLookup` object capable of
 #         mapping characters to indices. It is constructed on the train set
 #         and shared by the dev and test sets.
-#   - `dataset`: a `tf.data.Dataset` containing a dictionary with "forms", "lemmas", "tags".
+#   - max_length - maximum length of a sequence (sentence)
+#   - methods to convert it to a DataLoader and a collate() function
+
 
 
 class Factor:
