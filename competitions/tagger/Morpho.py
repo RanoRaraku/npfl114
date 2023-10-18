@@ -8,6 +8,9 @@ from torch import Tensor, tensor
 from torch.nn.utils.rnn import pad_sequence
 from torch.utils.data import DataLoader, Dataset
 
+# dl data from "https://ufal.mff.cuni.cz/~straka/courses/npfl114/2223/datasets/czech_pdt.zip"
+# My thanks to M.Straka
+
 # Loads a morphological dataset 'MorphoDataset'
 # - The morphological dataset consists of two subdatasets 'CustomDataset'
 #   - `train`
